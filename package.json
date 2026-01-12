@@ -1,17 +1,26 @@
 {
   "name": "polymarket-keeper",
   "version": "1.0.0",
+  "description": "Scripts for managing Sapience conditions from Polymarket markets",
   "type": "module",
   "scripts": {
     "generate": "tsx generate-sapience-conditions.ts",
-    "generate:ending-soon": "tsx generate-sapience-conditions.ts --ending-soon"
+    "generate:ending-soon": "tsx generate-sapience-conditions.ts --ending-soon",
+    "settle": "tsx settle-sapience-conditions.ts",
+    "settle:execute": "tsx settle-sapience-conditions.ts --execute",
+    "settle:execute:wait": "tsx settle-sapience-conditions.ts --execute --wait"
   },
   "dependencies": {
+    "dotenv": "^16.4.0",
     "viem": "^2.38.0"
   },
   "devDependencies": {
-    "@types/node": "^25.0.3",
-    "tsx": "^4.19.2",
-    "typescript": "^5.9.2"
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }
+

@@ -21,6 +21,12 @@
 import { writeFileSync } from 'fs';
 import { join } from 'path';
 import { privateKeyToAccount } from 'viem/accounts';
+import * as dotenv from 'dotenv';
+dotenv.config({path: './.env'});
+
+console.log(process.env.SAPIENCE_API_URL);
+console.log(process.env.ADMIN_PRIVATE_KEY);
+console.log(process.env.POLYGON_RPC_URL);
 
 // Admin authentication message (used for signing admin API requests)
 const ADMIN_AUTHENTICATE_MSG = 'Sign this message to authenticate for admin actions.';
