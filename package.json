@@ -6,6 +6,7 @@
   "scripts": {
     "generate": "tsx generate-sapience-conditions.ts",
     "generate:ending-soon": "tsx generate-sapience-conditions.ts --ending-soon",
+    "generate:ending-soon:dry-run": "tsx generate-sapience-conditions.ts --ending-soon --dry-run",
     "settle": "tsx settle-sapience-conditions.ts",
     "settle:execute": "tsx settle-sapience-conditions.ts --execute",
     "settle:execute:wait": "tsx settle-sapience-conditions.ts --execute --wait"

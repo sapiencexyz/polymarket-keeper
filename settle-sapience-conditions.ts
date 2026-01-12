@@ -212,10 +212,6 @@ async function fetchUnresolvedConditions(
 ): Promise<SapienceCondition[]> {
   const nowTimestamp = Math.floor(Date.now() / 1000);
   
-  console.log(`📥 Fetching unsettled conditions from Sapience API...`);
-  console.log(`   API URL: ${apiUrl}`);
-  console.log(`   Current timestamp: ${nowTimestamp}`);
-  
   const response = await fetch(apiUrl, {
     method: 'POST',
     headers: {
@@ -242,10 +238,7 @@ async function fetchUnresolvedConditions(
     throw new Error('No conditions data in response');
   }
   
-  const conditions = result.data.conditions.slice(0, limit);
-  console.log(`✅ Found ${result.data.conditions.length} unsettled conditions (processing ${conditions.length})`);
-  
-  return conditions;
+  return result.data.conditions.slice(0, limit);
 }
 
 // ============ Blockchain Functions ============
@@ -268,6 +261,7 @@ async function checkAndSettleCondition(
   
   try {
     // Check if condition can be resolved on Polymarket
+    console.log(`[${conditionId}] Checking canRequestResolution...`);
     const canResolve = await publicClient.readContract({
       address: CONDITIONAL_TOKENS_READER_ADDRESS,
       abi: conditionalTokensReaderAbi,
@@ -276,10 +270,12 @@ async function checkAndSettleCondition(
     });
     
     if (!canResolve) {
+      console.log(`[${conditionId}] Not resolved on Polymarket yet`);
       return { conditionId, canResolve: false, settled: false };
     }
     
     // Get the LayerZero fee quote
+    console.log(`[${conditionId}] Getting LayerZero fee quote...`);
     const fee = await publicClient.readContract({
       address: CONDITIONAL_TOKENS_READER_ADDRESS,
       abi: conditionalTokensReaderAbi,
@@ -288,10 +284,10 @@ async function checkAndSettleCondition(
     });
     
     const nativeFee = fee.nativeFee;
-    console.log(`   💰 LayerZero fee: ${formatEther(nativeFee)} POL`);
+    console.log(`[${conditionId}] LayerZero fee: ${formatEther(nativeFee)} POL`);
     
     if (options.dryRun) {
-      console.log(`   🔍 DRY RUN: Would call requestResolution with ${formatEther(nativeFee)} POL`);
+      console.log(`[${conditionId}] DRY RUN - would call requestResolution`);
       return { conditionId, canResolve: true, settled: false };
     }
     
@@ -300,6 +296,7 @@ async function checkAndSettleCondition(
     }
     
     // Execute the settlement
+    console.log(`[${conditionId}] Sending requestResolution transaction...`);
     const hash = await walletClient.writeContract({
       address: CONDITIONAL_TOKENS_READER_ADDRESS,
       abi: conditionalTokensReaderAbi,
@@ -308,12 +305,12 @@ async function checkAndSettleCondition(
       value: nativeFee,
     });
     
-    console.log(`   ✅ Transaction sent: ${hash}`);
+    console.log(`[${conditionId}] Transaction sent: ${hash}`);
     
     if (options.wait) {
-      console.log(`   ⏳ Waiting for confirmation...`);
+      console.log(`[${conditionId}] Waiting for confirmation...`);
       const receipt = await publicClient.waitForTransactionReceipt({ hash });
-      console.log(`   ✅ Confirmed in block ${receipt.blockNumber}`);
+      console.log(`[${conditionId}] Confirmed in block ${receipt.blockNumber}`);
     }
     
     return { conditionId, canResolve: true, settled: true, txHash: hash };
@@ -334,28 +331,20 @@ async function main() {
     process.exit(0);
   }
   
-  console.log('🚀 Sapience Condition Settlement Script\n');
-  console.log(`   Mode: ${options.dryRun ? 'DRY RUN' : 'EXECUTE'}`);
-  console.log(`   Wait for confirmations: ${options.wait}`);
-  console.log(`   Limit: ${Number.isFinite(options.limit) ? options.limit : 'all'}`);
-  console.log('');
-  
-  // Get environment variables
   const polygonRpcUrl = process.env.POLYGON_RPC_URL;
   const privateKey = process.env.ADMIN_PRIVATE_KEY;
   const sapienceApiUrl = process.env.SAPIENCE_API_URL || DEFAULT_SAPIENCE_API_URL;
   
   if (!polygonRpcUrl) {
-    console.error('❌ POLYGON_RPC_URL environment variable is required');
+    console.error('POLYGON_RPC_URL environment variable is required');
     process.exit(1);
   }
   
   if (options.execute && !privateKey) {
-    console.error('❌ ADMIN_PRIVATE_KEY environment variable is required for --execute mode');
+    console.error('ADMIN_PRIVATE_KEY environment variable is required for --execute mode');
     process.exit(1);
   }
   
-  // Create clients
   const publicClient = createPublicClient({
     chain: polygon,
     transport: http(polygonRpcUrl),
@@ -373,26 +362,20 @@ async function main() {
       transport: http(polygonRpcUrl),
     });
     
-    console.log(`   Wallet: ${account.address}`);
-    
-    // Check balance
+    // Check wallet balance
     const balance = await publicClient.getBalance({ address: account.address });
-    console.log(`   Balance: ${formatEther(balance)} POL`);
+    console.log(`Wallet ${account.address} balance: ${formatEther(balance)} POL`);
   }
   
-  console.log('');
-  
   try {
-    // Fetch unsettled conditions from Sapience API
     const conditions = await fetchUnresolvedConditions(sapienceApiUrl, options.limit);
     
     if (conditions.length === 0) {
-      console.log('\n✅ No unsettled conditions found. Nothing to do.');
+      console.log('No unsettled conditions found');
       return;
     }
     
-    // Display conditions
-    console.log('\n📋 Processing conditions:\n');
+    console.log(`Processing ${conditions.length} conditions (mode: ${options.dryRun ? 'dry-run' : 'execute'})`);
     
     const results = {
       total: conditions.length,
@@ -402,14 +385,7 @@ async function main() {
       errors: 0,
     };
     
-    for (let i = 0; i < conditions.length; i++) {
-      const condition = conditions[i];
-      const endDate = new Date(condition.endTime * 1000);
-      
-      console.log(`[${i + 1}/${conditions.length}] ${condition.shortName || condition.question.slice(0, 60)}...`);
-      console.log(`   ID: ${condition.id}`);
-      console.log(`   End time: ${endDate.toISOString()}`);
-      
+    for (const condition of conditions) {
       const result = await checkAndSettleCondition(
         publicClient,
         walletClient,
@@ -418,10 +394,9 @@ async function main() {
       );
       
       if (result.error) {
-        console.log(`   ❌ Error: ${result.error}`);
+        console.error(`Error for ${condition.id}: ${result.error}`);
         results.errors++;
       } else if (!result.canResolve) {
-        console.log(`   ⏭️  Not resolved on Polymarket yet`);
         results.skipped++;
       } else if (result.settled) {
         results.settled++;
@@ -429,25 +404,13 @@ async function main() {
       } else {
         results.canResolve++;
       }
-      
-      console.log('');
     }
     
     // Summary
-    console.log('='.repeat(80));
-    console.log('\n📊 SETTLEMENT SUMMARY\n');
-    console.log(`   Total conditions processed: ${results.total}`);
-    console.log(`   Resolved on Polymarket: ${results.canResolve}`);
-    console.log(`   Not yet resolved: ${results.skipped}`);
-    console.log(`   Settlements sent: ${results.settled}`);
-    console.log(`   Errors: ${results.errors}`);
-    
-    if (options.dryRun && results.canResolve > 0) {
-      console.log('\n💡 Run with --execute to actually send settlement transactions');
-    }
+    console.log(`Summary: ${results.total} processed, ${results.canResolve} resolvable, ${results.settled} settled, ${results.skipped} skipped, ${results.errors} errors`);
     
   } catch (error) {
-    console.error('\n❌ Error:', error);
+    console.error('Error:', error);
     process.exit(1);
   }
 }

@@ -24,9 +24,6 @@ import { privateKeyToAccount } from 'viem/accounts';
 import * as dotenv from 'dotenv';
 dotenv.config({path: './.env'});
 
-console.log(process.env.SAPIENCE_API_URL);
-console.log(process.env.ADMIN_PRIVATE_KEY);
-console.log(process.env.POLYGON_RPC_URL);
 
 // Admin authentication message (used for signing admin API requests)
 const ADMIN_AUTHENTICATE_MSG = 'Sign this message to authenticate for admin actions.';
@@ -232,33 +229,24 @@ function getPolymarketUrl(market: PolymarketMarket): string {
 // ============ Data Fetching ============
 
 async function fetchPolymarketMarkets(limit: number = 100): Promise<PolymarketMarket[]> {
-  try {
-    console.log('📥 Fetching markets from Polymarket...');
-    
-    const response = await fetch(
-      `https://gamma-api.polymarket.com/markets?limit=1000&closed=false&order=volume&ascending=false`,
-      { headers: { 'Accept': 'application/json' } }
-    );
+  const response = await fetch(
+    `https://gamma-api.polymarket.com/markets?limit=1000&closed=false&order=volume&ascending=false`,
+    { headers: { 'Accept': 'application/json' } }
+  );
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch: ${response.status} ${response.statusText}`);
-    }
-
-    const markets: PolymarketMarket[] = await response.json();
-    
-    // Filter for binary markets only
-    const binaryMarkets = markets
-      .filter(m => parseOutcomes(m.outcomes).length === 2)
-      .sort((a, b) => parseFloat(b.volume || '0') - parseFloat(a.volume || '0'))
-      .slice(0, limit);
-    
-    console.log(`✅ Found ${binaryMarkets.length} binary markets (from ${markets.length} total)`);
-    
-    return binaryMarkets;
-  } catch (error) {
-    console.error('❌ Error fetching markets:', error);
-    throw error;
+  if (!response.ok) {
+    throw new Error(`Failed to fetch: ${response.status} ${response.statusText}`);
   }
+
+  const markets: PolymarketMarket[] = await response.json();
+  
+  // Filter for binary markets only
+  const binaryMarkets = markets
+    .filter(m => parseOutcomes(m.outcomes).length === 2)
+    .sort((a, b) => parseFloat(b.volume || '0') - parseFloat(a.volume || '0'))
+    .slice(0, limit);
+  
+  return binaryMarkets;
 }
 
 /**
@@ -266,36 +254,30 @@ async function fetchPolymarketMarkets(limit: number = 100): Promise<PolymarketMa
  * Orders by endDate ascending, no volume sorting
  * Uses end_date_min API parameter to filter for markets ending in the future
  */
-async function fetchEndingSoonestMarkets(limit: number = 10): Promise<PolymarketMarket[]> {
-  try {
-    console.log('📥 Fetching markets ending soonest from Polymarket...');
-    
-    // Minimum end time: current time + 1 minute (ISO format for API)
-    const minEndDate = new Date(Date.now() + 60 * 1000).toISOString();
-    
-    const response = await fetch(
-      `https://gamma-api.polymarket.com/markets?limit=500&closed=false&order=endDate&ascending=true&end_date_min=${minEndDate}`,
-      { headers: { 'Accept': 'application/json' } }
-    );
+async function fetchEndingSoonestMarkets(limit: number | undefined = undefined): Promise<PolymarketMarket[]> {
+  // Minimum end time: current time + 1 minute (ISO format for API)
+  const minEndDate = new Date(Date.now() + 60 * 1000).toISOString();
+  // Maximum end time: current time + 30 minutes
+  const maxEndDate = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  
+  const response = await fetch(
+    `https://gamma-api.polymarket.com/markets?limit=500&closed=false&order=endDate&ascending=true&end_date_min=${minEndDate}`,
+    { headers: { 'Accept': 'application/json' } }
+  );
 
-    if (!response.ok) {
-      throw new Error(`Failed to fetch: ${response.status} ${response.statusText}`);
-    }
-
-    const markets: PolymarketMarket[] = await response.json();
-    
-    // Filter for binary markets only, preserve end date ordering (no re-sort)
-    const binaryMarkets = markets
-      .filter(m => parseOutcomes(m.outcomes).length === 2)
-      .slice(0, limit);
-    
-    console.log(`✅ Found ${binaryMarkets.length} binary markets ending soonest (from ${markets.length} total, end_date_min=${minEndDate})`);
-    
-    return binaryMarkets;
-  } catch (error) {
-    console.error('❌ Error fetching markets:', error);
-    throw error;
+  if (!response.ok) {
+    throw new Error(`Failed to fetch: ${response.status} ${response.statusText}`);
   }
+
+  const markets: PolymarketMarket[] = await response.json();
+  
+  // Filter for binary markets ending within 30 minutes, preserve end date ordering
+  const binaryMarkets = markets
+    .filter(m => parseOutcomes(m.outcomes).length === 2)
+    .filter(m => new Date(m.endDate) < new Date(maxEndDate))
+    .slice(0, limit);
+  
+  return binaryMarkets;
 }
 
 // ============ Data Transformation ============
@@ -438,7 +420,7 @@ function deriveGroupTitle(market: PolymarketMarket): string {
 function exportJSON(data: SapienceOutput, filename: string = 'sapience-conditions.json'): void {
   const outputPath = join(process.cwd(), filename);
   writeFileSync(outputPath, JSON.stringify(data, null, 2));
-  console.log(`\n✅ Exported to ${outputPath}`);
+  console.log(`Exported to ${outputPath}`);
 }
 
 // ============ API Submission Functions ============
@@ -571,13 +553,6 @@ async function submitToAPI(
   privateKey: `0x${string}`,
   data: SapienceOutput
 ): Promise<void> {
-  console.log('\n' + '='.repeat(80));
-  console.log('\n📤 SUBMITTING TO SAPIENCE API\n');
-  console.log(`   API URL: ${apiUrl}`);
-  console.log(`   Total Groups: ${data.groups.length}`);
-  console.log(`   Total Conditions: ${data.metadata.totalConditions}`);
-  console.log('');
-
   let groupsCreated = 0;
   let groupsSkipped = 0;
   let groupsFailed = 0;
@@ -587,25 +562,18 @@ async function submitToAPI(
 
   // Submit groups and their conditions
   for (const group of data.groups) {
-    console.log(`\n📦 Group: ${group.title}`);
-    
-    // Submit the group
     const groupResult = await submitConditionGroup(apiUrl, privateKey, group);
     if (groupResult.success) {
       if (groupResult.error) {
-        console.log(`   ⏭️  Group: ${groupResult.error}`);
         groupsSkipped++;
       } else {
-        console.log(`   ✅ Group created`);
         groupsCreated++;
       }
     } else {
-      console.log(`   ❌ Group failed: ${groupResult.error}`);
+      console.error(`Group "${group.title}" failed: ${groupResult.error}`);
       groupsFailed++;
     }
 
-    // Submit conditions in the group
-    console.log(`   Submitting ${group.conditions.length} conditions...`);
     for (const condition of group.conditions) {
       const conditionResult = await submitCondition(apiUrl, privateKey, condition);
       if (conditionResult.success) {
@@ -615,99 +583,43 @@ async function submitToAPI(
           conditionsCreated++;
         }
       } else {
-        console.log(`   ❌ "${condition.question.slice(0, 50)}...": ${conditionResult.error}`);
+        console.error(`Condition failed: ${conditionResult.error}`);
         conditionsFailed++;
       }
     }
-    console.log(`   ✅ Conditions: ${conditionsCreated} created, ${conditionsSkipped} skipped, ${conditionsFailed} failed`);
   }
 
   // Submit ungrouped conditions
-  if (data.ungroupedConditions.length > 0) {
-    console.log(`\n📋 Ungrouped Conditions (${data.ungroupedConditions.length})`);
-    for (const condition of data.ungroupedConditions) {
-      const conditionResult = await submitCondition(apiUrl, privateKey, condition);
-      if (conditionResult.success) {
-        if (conditionResult.error) {
-          conditionsSkipped++;
-        } else {
-          conditionsCreated++;
-        }
+  for (const condition of data.ungroupedConditions) {
+    const conditionResult = await submitCondition(apiUrl, privateKey, condition);
+    if (conditionResult.success) {
+      if (conditionResult.error) {
+        conditionsSkipped++;
       } else {
-        console.log(`   ❌ "${condition.question.slice(0, 50)}...": ${conditionResult.error}`);
-        conditionsFailed++;
+        conditionsCreated++;
       }
+    } else {
+      console.error(`Condition failed: ${conditionResult.error}`);
+      conditionsFailed++;
     }
   }
 
   // Final summary
-  console.log('\n' + '='.repeat(80));
-  console.log('\n📊 SUBMISSION SUMMARY\n');
-  console.log(`   Groups:`);
-  console.log(`     ✅ Created: ${groupsCreated}`);
-  console.log(`     ⏭️  Skipped: ${groupsSkipped}`);
-  console.log(`     ❌ Failed: ${groupsFailed}`);
-  console.log('');
-  console.log(`   Conditions:`);
-  console.log(`     ✅ Created: ${conditionsCreated}`);
-  console.log(`     ⏭️  Skipped: ${conditionsSkipped}`);
-  console.log(`     ❌ Failed: ${conditionsFailed}`);
-  console.log('');
+  console.log(`Groups: ${groupsCreated} created, ${groupsSkipped} skipped, ${groupsFailed} failed`);
+  console.log(`Conditions: ${conditionsCreated} created, ${conditionsSkipped} skipped, ${conditionsFailed} failed`);
 }
 
-// ============ Display Functions ============
-
-function displaySummary(data: SapienceOutput): void {
-  console.log('\n' + '='.repeat(80));
-  console.log('\n📊 SAPIENCE CONDITIONS SUMMARY\n');
-  console.log(`   Total Conditions: ${data.metadata.totalConditions}`);
-  console.log(`   Condition Groups: ${data.metadata.totalGroups}`);
-  console.log(`   Ungrouped Conditions: ${data.ungroupedConditions.length}`);
-  console.log(`   Binary Markets: ${data.metadata.binaryConditions}`);
-  
-  if (data.groups.length > 0) {
-    console.log('\n📦 TOP 10 CONDITION GROUPS (by condition count):\n');
-    data.groups.slice(0, 10).forEach((group, i) => {
-      console.log(`   ${i + 1}. ${group.title}`);
-      console.log(`      Conditions: ${group.conditions.length}`);
-      console.log(`      Category: ${group.categorySlug}`);
-      console.log('');
-    });
-  }
-  
-  console.log('\n📋 SAMPLE CONDITIONS:\n');
-  const sampleConditions = [
-    ...data.groups.slice(0, 2).flatMap(g => g.conditions.slice(0, 2)),
-    ...data.ungroupedConditions.slice(0, 2),
-  ].slice(0, 5);
-  
-  sampleConditions.forEach((condition, i) => {
-    console.log(`   ${i + 1}. ${condition.question}`);
-    console.log(`      Condition Hash: ${condition.conditionHash}`);
-    console.log(`      End Date: ${new Date(condition.endDate).toLocaleDateString()}`);
-    console.log(`      Similar Market: ${condition.similarMarkets[0]}`);
-    if (condition.groupTitle) {
-      console.log(`      Group: ${condition.groupTitle}`);
-    }
-    console.log('');
-  });
-}
 
 // ============ Main ============
 
 async function main() {
-  // Parse CLI arguments
   const options = parseArgs();
   
-  // Show help if requested
   if (options.help) {
     showHelp();
     process.exit(0);
   }
   
-  console.log('🚀 Generating Sapience Conditions from Polymarket\n');
-  
-  // Check for API submission environment variables
   const apiUrl = process.env.SAPIENCE_API_URL;
   const rawPrivateKey = process.env.ADMIN_PRIVATE_KEY;
   
@@ -720,44 +632,24 @@ async function main() {
     if (/^0x[0-9a-fA-F]{64}$/.test(formattedKey)) {
       privateKey = formattedKey as `0x${string}`;
     } else {
-      console.warn('⚠️  ADMIN_PRIVATE_KEY is invalid (must be 64 hex chars, optionally 0x-prefixed)');
+      console.error('ADMIN_PRIVATE_KEY is invalid (must be 64 hex chars, optionally 0x-prefixed)');
+      process.exit(1);
     }
   }
   
   const hasAPICredentials = apiUrl && privateKey;
   
-  // Show mode info
-  if (options.endingSoon) {
-    console.log('🚨 ENDING-SOON MODE: Fetching 10 markets ending soonest\n');
-  }
-  
-  // Show API credentials status
-  if (hasAPICredentials) {
-    console.log('✅ API credentials detected - will submit to API');
-    console.log(`   API URL: ${apiUrl}`);
-    console.log(`   Auth: Wallet signature (address derived from private key)`);
-    console.log(`   Resolver: ${RESOLVER_ADDRESS}\n`);
-  } else {
-    console.log('ℹ️  No API credentials - will only generate JSON file');
-    console.log('   Set SAPIENCE_API_URL and ADMIN_PRIVATE_KEY to submit to API');
-    console.log('   (ADMIN_PRIVATE_KEY should be a 64-char hex string, 0x prefix optional)\n');
-  }
-  
   try {
     // Fetch Polymarket markets based on mode
     const markets = options.endingSoon
-      ? await fetchEndingSoonestMarkets(10)
+      ? await fetchEndingSoonestMarkets(500)
       : await fetchPolymarketMarkets(100);
     
-    // Transform to Sapience structure
-    console.log('\n🔄 Transforming to Sapience structure...');
     const sapienceData = groupMarkets(markets);
     
-    // Display summary
-    displaySummary(sapienceData);
+    console.log(`Fetched ${sapienceData.metadata.totalConditions} conditions (${sapienceData.metadata.totalGroups} groups)`);
     
     // Export JSON file
-    console.log('\n💾 EXPORTING:\n');
     exportJSON(sapienceData);
     
     // Submit to API if credentials are available
@@ -765,55 +657,8 @@ async function main() {
       await submitToAPI(apiUrl, privateKey, sapienceData);
     }
     
-    console.log('\n' + '='.repeat(80));
-    console.log('\n✨ NEXT STEPS:\n');
-    
-    if (hasAPICredentials) {
-      console.log('   ✅ Data submitted to Sapience API');
-      console.log('   1. Check API logs for any errors');
-      console.log('   2. Verify conditions in the database');
-      console.log('   3. Use conditionHash with PredictionMarketLZConditionalTokensResolver');
-      console.log('   4. The resolver will fetch results from Polymarket via LayerZero\n');
-    } else {
-      console.log('   1. Review sapience-conditions.json');
-      console.log('   2. Set SAPIENCE_API_URL and ADMIN_PRIVATE_KEY environment variables');
-      console.log('   3. Re-run script to submit to API, OR:');
-      console.log('   4. Use conditionHash with PredictionMarketLZConditionalTokensResolver');
-      console.log('   5. The resolver will fetch results from Polymarket via LayerZero\n');
-    }
-    
-    console.log('📝 JSON STRUCTURE:\n');
-    console.log('   {');
-    console.log('     metadata: { totalConditions, totalGroups, ... },');
-    console.log('     groups: [');
-    console.log('       {');
-    console.log('         title: "Group Title",');
-    console.log('         categorySlug: "sports",');
-    console.log('         description: "...",');
-    console.log('         conditions: [ {...}, {...} ]');
-    console.log('       }');
-    console.log('     ],');
-    console.log('     ungroupedConditions: [ {...}, {...} ]');
-    console.log('   }\n');
-    console.log('   Each Condition has:');
-    console.log('     - conditionHash: Polymarket conditionId (bytes32)');
-    console.log('     - question, endDate, description');
-    console.log('     - similarMarkets: [Polymarket URLs]');
-    console.log('     - resolver: PredictionMarketLZConditionalTokensResolver address');
-    console.log('     - groupTitle: parent group name (for grouped conditions)');
-    console.log('     - claimStatement: empty (not used for external conditions)');
-    console.log('     - All conditions are binary (Yes/No)\n');
-    
-    console.log('⚠️  IMPORTANT NOTES:\n');
-    console.log('   - Resolver address: ' + RESOLVER_ADDRESS);
-    console.log('   - Chain ID: ' + CHAIN_ID_ETHEREAL + ' (Ethereal)');
-    console.log('   - conditionHash (Polymarket conditionId) is used directly as condition ID');
-    console.log('   - claimStatement is left empty (not needed for external conditions)');
-    console.log('   - shortName is set to question (Polymarket doesn\'t provide shortName)');
-    console.log('   - Duplicate submissions are handled gracefully (skipped)\n');
-    
   } catch (error) {
-    console.error('\n❌ Error:', error);
+    console.error('Error:', error);
     process.exit(1);
   }
 }
