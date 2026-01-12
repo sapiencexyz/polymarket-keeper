@@ -541,8 +541,12 @@ async function submitCondition(
       return { success: true, error: 'Already exists (skipped)' };
     }
 
-    console.log(await response.text());
-    const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
+    const responseText = await response.text();
+    console.error(`[Condition] Response body: ${responseText}`);
+    let errorData = { message: 'Unknown error' };
+    try {
+      errorData = JSON.parse(responseText);
+    } catch {}
     const errorMsg = `HTTP ${response.status}: ${errorData.message || response.statusText}`;
     console.error(`[Condition] ${condition.question} submission failed: ${errorMsg}`);
     return { success: false, error: errorMsg };
@@ -566,12 +570,21 @@ async function submitToAPI(
   let groupsCreated = 0;
   let groupsSkipped = 0;
   let groupsFailed = 0;
+  let cryptoGroupsSkipped = 0;
   let conditionsCreated = 0;
   let conditionsSkipped = 0;
   let conditionsFailed = 0;
+  let cryptoConditionsSkipped = 0;
 
-  // Submit groups and their conditions
+  // Submit groups and their conditions (skip crypto category)
   for (const group of data.groups) {
+    // Skip crypto groups entirely
+    if (group.categorySlug === 'crypto') {
+      cryptoGroupsSkipped++;
+      cryptoConditionsSkipped += group.conditions.length;
+      continue;
+    }
+    
     const groupResult = await submitConditionGroup(apiUrl, privateKey, group);
     if (groupResult.success) {
       if (groupResult.error) {
@@ -584,6 +597,12 @@ async function submitToAPI(
     }
 
     for (const condition of group.conditions) {
+      // Skip crypto conditions
+      if (condition.categorySlug === 'crypto') {
+        cryptoConditionsSkipped++;
+        continue;
+      }
+      
       const conditionResult = await submitCondition(apiUrl, privateKey, condition);
       if (conditionResult.success) {
         if (conditionResult.error) {
@@ -597,8 +616,14 @@ async function submitToAPI(
     }
   }
 
-  // Submit ungrouped conditions
+  // Submit ungrouped conditions (skip crypto category)
   for (const condition of data.ungroupedConditions) {
+    // Skip crypto conditions
+    if (condition.categorySlug === 'crypto') {
+      cryptoConditionsSkipped++;
+      continue;
+    }
+    
     const conditionResult = await submitCondition(apiUrl, privateKey, condition);
     if (conditionResult.success) {
       if (conditionResult.error) {
@@ -614,6 +639,9 @@ async function submitToAPI(
   // Final summary
   console.log(`Groups: ${groupsCreated} created, ${groupsSkipped} skipped, ${groupsFailed} failed`);
   console.log(`Conditions: ${conditionsCreated} created, ${conditionsSkipped} skipped, ${conditionsFailed} failed`);
+  if (cryptoGroupsSkipped > 0 || cryptoConditionsSkipped > 0) {
+    console.log(`Crypto skipped: ${cryptoGroupsSkipped} groups, ${cryptoConditionsSkipped} conditions`);
+  }
 }
 
 
