@@ -72,6 +72,8 @@ Examples:
 // Placeholder resolver address - update this with actual resolver contract address
 const RESOLVER_ADDRESS = '0x04aD4e8AE0F828E4BeA2C86165a7800Db499e0F5' as const;
 
+const DEFAULT_SAPIENCE_API_URL = 'https://api.sapience.xyz';
+
 // Ethereal chain ID (from @sapience/sdk/constants/chain.ts)
 const CHAIN_ID_ETHEREAL = 5064014 as const;
 
@@ -539,13 +541,14 @@ async function submitCondition(
       return { success: true, error: 'Already exists (skipped)' };
     }
 
+    console.log(await response.text());
     const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
     const errorMsg = `HTTP ${response.status}: ${errorData.message || response.statusText}`;
-    console.error(`[Condition] ${condition.conditionHash} submission failed: ${errorMsg}`);
+    console.error(`[Condition] ${condition.question} submission failed: ${errorMsg}`);
     return { success: false, error: errorMsg };
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    console.error(`[Condition] ${condition.conditionHash} submission error: ${errorMsg}`);
+    console.error(`[Condition] ${condition.question} submission error: ${errorMsg}`);
     return { success: false, error: errorMsg };
   }
 }
@@ -624,7 +627,7 @@ async function main() {
     process.exit(0);
   }
   
-  const apiUrl = process.env.SAPIENCE_API_URL;
+  const apiUrl = process.env.SAPIENCE_API_URL || DEFAULT_SAPIENCE_API_URL;
   const rawPrivateKey = process.env.ADMIN_PRIVATE_KEY;
   
   // Validate and format private key (must be 0x-prefixed hex string)
