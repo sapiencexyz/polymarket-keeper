@@ -21,8 +21,7 @@
 import { writeFileSync } from 'fs';
 import { join } from 'path';
 import { privateKeyToAccount } from 'viem/accounts';
-import * as dotenv from 'dotenv';
-dotenv.config({path: './.env'});
+import 'dotenv/config';
 
 
 // Admin authentication message (used for signing admin API requests)
@@ -229,13 +228,15 @@ function getPolymarketUrl(market: PolymarketMarket): string {
 // ============ Data Fetching ============
 
 async function fetchPolymarketMarkets(limit: number = 100): Promise<PolymarketMarket[]> {
-  const response = await fetch(
-    `https://gamma-api.polymarket.com/markets?limit=1000&closed=false&order=volume&ascending=false`,
-    { headers: { 'Accept': 'application/json' } }
-  );
+  const url = `https://gamma-api.polymarket.com/markets?limit=1000&closed=false&order=volume&ascending=false`;
+  
+  const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch: ${response.status} ${response.statusText}`);
+    const errorBody = await response.text().catch(() => '');
+    console.error(`[Polymarket API] Failed to fetch markets: HTTP ${response.status} ${response.statusText}`);
+    if (errorBody) console.error(`[Polymarket API] Response body: ${errorBody}`);
+    throw new Error(`Polymarket API error: ${response.status} ${response.statusText}`);
   }
 
   const markets: PolymarketMarket[] = await response.json();
@@ -260,13 +261,15 @@ async function fetchEndingSoonestMarkets(limit: number | undefined = undefined):
   // Maximum end time: current time + 30 minutes
   const maxEndDate = new Date(Date.now() + 30 * 60 * 1000).toISOString();
   
-  const response = await fetch(
-    `https://gamma-api.polymarket.com/markets?limit=500&closed=false&order=endDate&ascending=true&end_date_min=${minEndDate}`,
-    { headers: { 'Accept': 'application/json' } }
-  );
+  const url = `https://gamma-api.polymarket.com/markets?limit=500&closed=false&order=endDate&ascending=true&end_date_min=${minEndDate}`;
+  
+  const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch: ${response.status} ${response.statusText}`);
+    const errorBody = await response.text().catch(() => '');
+    console.error(`[Polymarket API] Failed to fetch ending-soon markets: HTTP ${response.status} ${response.statusText}`);
+    if (errorBody) console.error(`[Polymarket API] Response body: ${errorBody}`);
+    throw new Error(`Polymarket API error: ${response.status} ${response.statusText}`);
   }
 
   const markets: PolymarketMarket[] = await response.json();
@@ -485,12 +488,13 @@ async function submitConditionGroup(
     }
 
     const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
-    return { success: false, error: errorData.message || `HTTP ${response.status}` };
+    const errorMsg = `HTTP ${response.status}: ${errorData.message || response.statusText}`;
+    console.error(`[Group] "${group.title}" submission failed: ${errorMsg}`);
+    return { success: false, error: errorMsg };
   } catch (error) {
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : String(error) 
-    };
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error(`[Group] "${group.title}" submission error: ${errorMsg}`);
+    return { success: false, error: errorMsg };
   }
 }
 
@@ -536,12 +540,13 @@ async function submitCondition(
     }
 
     const errorData = await response.json().catch(() => ({ message: 'Unknown error' }));
-    return { success: false, error: errorData.message || `HTTP ${response.status}` };
+    const errorMsg = `HTTP ${response.status}: ${errorData.message || response.statusText}`;
+    console.error(`[Condition] ${condition.conditionHash} submission failed: ${errorMsg}`);
+    return { success: false, error: errorMsg };
   } catch (error) {
-    return { 
-      success: false, 
-      error: error instanceof Error ? error.message : String(error) 
-    };
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error(`[Condition] ${condition.conditionHash} submission error: ${errorMsg}`);
+    return { success: false, error: errorMsg };
   }
 }
 
@@ -553,6 +558,8 @@ async function submitToAPI(
   privateKey: `0x${string}`,
   data: SapienceOutput
 ): Promise<void> {
+  console.log(`Submitting to API: ${apiUrl}`);
+  
   let groupsCreated = 0;
   let groupsSkipped = 0;
   let groupsFailed = 0;
@@ -570,7 +577,6 @@ async function submitToAPI(
         groupsCreated++;
       }
     } else {
-      console.error(`Group "${group.title}" failed: ${groupResult.error}`);
       groupsFailed++;
     }
 
@@ -583,7 +589,6 @@ async function submitToAPI(
           conditionsCreated++;
         }
       } else {
-        console.error(`Condition failed: ${conditionResult.error}`);
         conditionsFailed++;
       }
     }
@@ -599,7 +604,6 @@ async function submitToAPI(
         conditionsCreated++;
       }
     } else {
-      console.error(`Condition failed: ${conditionResult.error}`);
       conditionsFailed++;
     }
   }
