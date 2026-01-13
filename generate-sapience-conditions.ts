@@ -264,7 +264,7 @@ async function fetchEndingSoonestMarkets(limit: number | undefined = undefined):
   // Minimum end time: current time + 1 minute (ISO format for API)
   const minEndDate = new Date(Date.now() + 60 * 1000).toISOString();
   // Maximum end time: current time + 30 minutes
-  const maxEndDate = new Date(Date.now() + 30 * 60 * 1000).toISOString();
+  const maxEndDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
   
   const url = `https://gamma-api.polymarket.com/markets?limit=500&closed=false&order=endDate&ascending=true&end_date_min=${minEndDate}`;
   
