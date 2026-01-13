@@ -261,6 +261,14 @@ function transformMatchQuestion(market: PolymarketMarket): string {
     return market.question;
   }
   
+  // Detect spread markets: "Spread: Team A (-X.5)"
+  const spreadMatch = market.question.match(/^Spread:\s*(.+?)\s*\(([+-]?\d+(?:\.\d+)?)\)$/i);
+  if (spreadMatch) {
+    const [, , spread] = spreadMatch;
+    // outcomes[0] = favored team, outcomes[1] = underdog
+    return `${outcomes[0]} covers ${spread} spread vs ${outcomes[1]}?`;
+  }
+  
   // Detect "X vs. Y" or "X vs Y" pattern (with optional prefix like "LoL: " or suffix like "(BO3)")
   const vsMatch = market.question.match(/^(?:.+?:\s*)?(.+?)\s+vs\.?\s+(.+?)(?:\s*\(.+\))?$/i);
   if (!vsMatch) return market.question;
