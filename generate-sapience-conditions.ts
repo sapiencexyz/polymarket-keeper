@@ -241,9 +241,11 @@ function getPolymarketUrl(market: PolymarketMarket): string {
  * - "X vs. Y" → "X beats Y? (context)"
  * - "Spread: Team (-X.5)" → "Team covers -X.5 spread vs Opponent?"
  * - "Map Handicap: Team (-X.5)" → "Team covers -X.5 handicap vs Opponent?"
+ * - "Game Handicap: Team (-X.5)" → "Team covers -X.5 game handicap vs Opponent?"
+ * - "Series: Most X?" → "Team gets most X?"
  * 
  * Preserves prefix/suffix context from original question.
- * The first outcome in Polymarket = "Yes" = first team wins/covers
+ * The first outcome in Polymarket = "Yes" = first team wins/covers/gets most
  */
 function transformMatchQuestion(market: PolymarketMarket): string {
   const outcomes = parseOutcomes(market.outcomes);
@@ -267,13 +269,28 @@ function transformMatchQuestion(market: PolymarketMarket): string {
     return transformed;
   }
   
-  // Detect handicap markets: "Map Handicap: Team (-X.5)" or "Handicap: Team (-X.5)"
-  const handicapMatch = market.question.match(/^(?:(\S+)\s+)?(?:Map\s+)?Handicap:\s*.+?\s*\(([+-]?\d+(?:\.\d+)?)\)$/i);
+  // Detect handicap markets: "Map Handicap: Team (-X.5)", "Game Handicap: Team (-X.5)", or "Handicap: Team (-X.5)"
+  const handicapMatch = market.question.match(/^(?:(\S+)\s+)?(?:Map\s+|Game\s+)?Handicap:\s*.+?\s*\(([+-]?\d+(?:\.\d+)?)\)$/i);
   if (handicapMatch) {
     const [, prefix, handicap] = handicapMatch;
-    const context = prefix ? ` (${prefix})` : '';
+    // Extract handicap type (Map/Game) from original question for context
+    const handicapTypeMatch = market.question.match(/^(?:(\S+)\s+)?(Map|Game)\s+Handicap:/i);
+    const handicapType = handicapTypeMatch ? handicapTypeMatch[2].toLowerCase() : '';
+    const contextParts: string[] = [];
+    if (prefix) contextParts.push(prefix);
+    if (handicapType) contextParts.push(handicapType);
+    const context = contextParts.length > 0 ? ` (${contextParts.join(', ')})` : '';
     const transformed = `${outcomes[0]} covers ${handicap} handicap vs ${outcomes[1]}?${context}`;
     console.log(`[Transform Handicap] "${market.question}" → "${transformed}"`);
+    return transformed;
+  }
+  
+  // Detect "Most X?" questions: "Series: Most inhibitors?" or "Most kills?"
+  const mostMatch = market.question.match(/^(?:Series:\s+)?Most\s+(\w+)\?$/i);
+  if (mostMatch) {
+    const [, metric] = mostMatch;
+    const transformed = `${outcomes[0]} gets most ${metric}?`;
+    console.log(`[Transform Most] "${market.question}" → "${transformed}"`);
     return transformed;
   }
   
