@@ -239,6 +239,37 @@ function getPolymarketUrl(market: PolymarketMarket): string {
   return `https://polymarket.com#${market.slug}`;
 }
 
+/**
+ * Transform "X vs. Y" match questions to "X beats Y?" format
+ * This makes it clear what Yes/No means for sports markets.
+ * 
+ * Only transforms if:
+ * - Question matches "X vs. Y" pattern
+ * - Outcomes are team names (not Yes/No or Over/Under)
+ * 
+ * The first outcome in Polymarket = "Yes" = first team wins
+ */
+function transformMatchQuestion(market: PolymarketMarket): string {
+  const outcomes = parseOutcomes(market.outcomes);
+  
+  // Skip if not exactly 2 outcomes
+  if (outcomes.length !== 2) return market.question;
+  
+  // Skip if outcomes are standard Yes/No or Over/Under (not team names)
+  const standardOutcomes = ['Yes', 'No', 'Over', 'Under'];
+  if (standardOutcomes.includes(outcomes[0]) || standardOutcomes.includes(outcomes[1])) {
+    return market.question;
+  }
+  
+  // Detect "X vs. Y" or "X vs Y" pattern (with optional prefix like "LoL: " or suffix like "(BO3)")
+  const vsMatch = market.question.match(/^(?:.+?:\s*)?(.+?)\s+vs\.?\s+(.+?)(?:\s*\(.+\))?$/i);
+  if (!vsMatch) return market.question;
+  
+  // Rephrase: first outcome (Yes) beats second outcome (No)
+  // Using outcomes array ensures we get the exact team names as registered
+  return `${outcomes[0]} beats ${outcomes[1]}?`;
+}
+
 // ============ Data Fetching ============
 
 async function fetchPolymarketMarkets(limit: number = 100): Promise<PolymarketMarket[]> {
@@ -367,10 +398,13 @@ function computeGroupCategory(conditions: SapienceCondition[]): SapienceCategory
 }
 
 function transformToSapienceCondition(market: PolymarketMarket, groupTitle?: string): SapienceCondition {
+  // Transform "X vs Y" questions to "X beats Y?" for clarity
+  const question = transformMatchQuestion(market);
+  
   return {
     conditionHash: market.conditionId,  // Use Polymarket's conditionId directly
-    question: market.question,
-    shortName: market.question,  // Polymarket doesn't provide shortName, use question
+    question,
+    shortName: question,  // Use transformed question as shortName
     endDate: market.endDate,
     description: market.description || '',
     similarMarkets: [getPolymarketUrl(market)],
