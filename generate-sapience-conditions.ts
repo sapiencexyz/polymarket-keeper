@@ -31,6 +31,7 @@ const ADMIN_AUTHENTICATE_MSG = 'Sign this message to authenticate for admin acti
 
 interface CLIOptions {
   endingSoon: boolean;
+  dryRun: boolean;
   help: boolean;
 }
 
@@ -38,6 +39,7 @@ function parseArgs(): CLIOptions {
   const args = process.argv.slice(2);
   return {
     endingSoon: args.includes('--ending-soon'),
+    dryRun: args.includes('--dry-run'),
     help: args.includes('--help') || args.includes('-h'),
   };
 }
@@ -47,7 +49,8 @@ function showHelp(): void {
 Usage: tsx packages/api/scripts/generate-sapience-conditions.ts [options]
 
 Options:
-  --ending-soon  Fetch 10 markets ending soonest (ordered by end date)
+  --ending-soon  Fetch markets ending soonest (ordered by end date)
+  --dry-run      Show what would be submitted without actually submitting
   --help, -h     Show this help message
 
 Environment Variables (optional):
@@ -58,8 +61,11 @@ Examples:
   # Generate JSON file only (default: top 100 by volume)
   tsx packages/api/scripts/generate-sapience-conditions.ts
 
-  # Generate JSON with 10 soonest-ending markets
+  # Generate JSON with soonest-ending markets
   tsx packages/api/scripts/generate-sapience-conditions.ts --ending-soon
+
+  # Dry run - show what would be submitted
+  tsx packages/api/scripts/generate-sapience-conditions.ts --ending-soon --dry-run
 
   # Fetch and push to API
   SAPIENCE_API_URL=http://localhost:3001 ADMIN_PRIVATE_KEY=abc123... \\
@@ -387,18 +393,29 @@ function groupMarkets(markets: PolymarketMarket[]): SapienceOutput {
   // Sort groups by number of conditions (most popular)
   groups.sort((a, b) => b.conditions.length - a.conditions.length);
   
-  // Create ungrouped conditions
-  const ungroupedConditions = ungrouped.map(m => transformToSapienceCondition(m));
+  // Move single-condition groups to ungrouped (no point creating a group for one condition)
+  const singleConditionGroups = groups.filter(g => g.conditions.length === 1);
+  const multiConditionGroups = groups.filter(g => g.conditions.length > 1);
+  
+  if (singleConditionGroups.length > 0) {
+    console.log(`[Groups] Moving ${singleConditionGroups.length} single-condition groups to ungrouped`);
+  }
+  
+  // Create ungrouped conditions (include conditions from single-condition groups without groupTitle)
+  const ungroupedConditions = [
+    ...ungrouped.map(m => transformToSapienceCondition(m)),
+    ...singleConditionGroups.flatMap(g => g.conditions.map(c => ({ ...c, groupTitle: undefined }))),
+  ];
   
   return {
     metadata: {
       generatedAt: new Date().toISOString(),
       source: 'Polymarket Gamma API',
       totalConditions: markets.length,
-      totalGroups: groups.length,
+      totalGroups: multiConditionGroups.length,
       binaryConditions: markets.length,
     },
-    groups,
+    groups: multiConditionGroups,
     ungroupedConditions,
   };
 }
@@ -541,6 +558,57 @@ async function submitCondition(
 }
 
 /**
+ * Print what would be submitted in dry-run mode
+ */
+function printDryRun(data: SapienceOutput): void {
+  console.log('\n========== DRY RUN ==========\n');
+  
+  // Count non-crypto items
+  const nonCryptoGroups = data.groups.filter(g => g.categorySlug !== 'crypto');
+  const nonCryptoGroupConditions = nonCryptoGroups.flatMap(g => g.conditions.filter(c => c.categorySlug !== 'crypto'));
+  const nonCryptoUngrouped = data.ungroupedConditions.filter(c => c.categorySlug !== 'crypto');
+  
+  console.log(`Would submit ${nonCryptoGroups.length} groups and ${nonCryptoGroupConditions.length + nonCryptoUngrouped.length} conditions\n`);
+  
+  // Print groups
+  if (nonCryptoGroups.length > 0) {
+    console.log('Groups to create:');
+    for (const group of nonCryptoGroups) {
+      console.log(`  [${group.categorySlug}] "${group.title}" (${group.conditions.length} conditions)`);
+      for (const condition of group.conditions) {
+        if (condition.categorySlug === 'crypto') continue;
+        const endDate = new Date(condition.endDate).toLocaleString();
+        console.log(`    - ${condition.question.slice(0, 60)}${condition.question.length > 60 ? '...' : ''}`);
+        console.log(`      End: ${endDate} | Hash: ${condition.conditionHash.slice(0, 10)}...`);
+      }
+    }
+    console.log('');
+  }
+  
+  // Print ungrouped conditions
+  if (nonCryptoUngrouped.length > 0) {
+    console.log('Ungrouped conditions to create:');
+    for (const condition of nonCryptoUngrouped) {
+      const endDate = new Date(condition.endDate).toLocaleString();
+      console.log(`  [${condition.categorySlug}] ${condition.question.slice(0, 60)}${condition.question.length > 60 ? '...' : ''}`);
+      console.log(`    End: ${endDate} | Hash: ${condition.conditionHash.slice(0, 10)}...`);
+    }
+    console.log('');
+  }
+  
+  // Print skipped crypto
+  const cryptoGroups = data.groups.filter(g => g.categorySlug === 'crypto');
+  const cryptoConditions = data.groups.flatMap(g => g.conditions.filter(c => c.categorySlug === 'crypto')).length +
+                          data.ungroupedConditions.filter(c => c.categorySlug === 'crypto').length;
+  
+  if (cryptoGroups.length > 0 || cryptoConditions > 0) {
+    console.log(`Would skip: ${cryptoGroups.length} crypto groups, ${cryptoConditions} crypto conditions`);
+  }
+  
+  console.log('\n========== END DRY RUN ==========\n');
+}
+
+/**
  * Submit all condition groups and conditions to the API
  */
 async function submitToAPI(
@@ -669,6 +737,12 @@ async function main() {
     
     // Export JSON file
     exportJSON(sapienceData);
+    
+    // Dry run mode - just print what would be submitted
+    if (options.dryRun) {
+      printDryRun(sapienceData);
+      return;
+    }
     
     // Submit to API if credentials are available
     if (hasAPICredentials && apiUrl && privateKey) {
