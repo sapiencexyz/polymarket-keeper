@@ -270,32 +270,69 @@ async function fetchPolymarketMarkets(limit: number = 100): Promise<PolymarketMa
 /**
  * Fetch markets that end soonest (for --ending-soon mode)
  * Orders by endDate ascending, no volume sorting
- * Uses end_date_min API parameter to filter for markets ending in the future
+ * Iteratively fetches pages by moving end_date_min based on max endDate from previous response
  */
 async function fetchEndingSoonestMarkets(limit: number | undefined = undefined): Promise<PolymarketMarket[]> {
   // Minimum end time: current time + 1 minute (ISO format for API)
-  const minEndDate = new Date(Date.now() + 60 * 1000).toISOString();
-  // Maximum end time: current time + 30 minutes
-  const maxEndDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  let currentMinEndDate = new Date(Date.now() + 60 * 1000).toISOString();
+  // Maximum end time: current time + 24 hours
+  const maxEndDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
   
-  const url = `https://gamma-api.polymarket.com/markets?limit=500&closed=false&order=endDate&ascending=true&end_date_min=${minEndDate}`;
+  const allMarkets: PolymarketMarket[] = [];
+  const PAGE_SIZE = 500;
+  let pageCount = 0;
   
-  const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
+  console.log(`[Polymarket] Fetching ending-soon markets until ${maxEndDate.toISOString()}...`);
+  
+  while (true) {
+    pageCount++;
+    const url = `https://gamma-api.polymarket.com/markets?limit=${PAGE_SIZE}&closed=false&order=endDate&ascending=true&end_date_min=${currentMinEndDate}`;
+    
+    const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
 
-  if (!response.ok) {
-    const errorBody = await response.text().catch(() => '');
-    console.error(`[Polymarket API] Failed to fetch ending-soon markets: HTTP ${response.status} ${response.statusText}`);
-    if (errorBody) console.error(`[Polymarket API] Response body: ${errorBody}`);
-    throw new Error(`Polymarket API error: ${response.status} ${response.statusText}`);
+    if (!response.ok) {
+      const errorBody = await response.text().catch(() => '');
+      console.error(`[Polymarket API] Failed to fetch ending-soon markets: HTTP ${response.status} ${response.statusText}`);
+      if (errorBody) console.error(`[Polymarket API] Response body: ${errorBody}`);
+      throw new Error(`Polymarket API error: ${response.status} ${response.statusText}`);
+    }
+
+    const markets: PolymarketMarket[] = await response.json();
+    
+    if (markets.length === 0) {
+      console.log(`[Polymarket] Page ${pageCount}: No more markets`);
+      break;
+    }
+    
+    // Find the max endDate in this batch to use as next page's min
+    const maxEndDateInBatch = markets.reduce((max, m) => {
+      const endDate = new Date(m.endDate);
+      return endDate > max ? endDate : max;
+    }, new Date(0));
+    
+    console.log(`[Polymarket] Page ${pageCount}: Fetched ${markets.length} markets (max endDate: ${maxEndDateInBatch.toISOString()})`);
+    
+    // Add markets that are within our time window
+    const marketsInWindow = markets.filter(m => new Date(m.endDate) < maxEndDate);
+    allMarkets.push(...marketsInWindow);
+    
+    // Stop conditions:
+    // 1. Got less than PAGE_SIZE markets (no more pages)
+    // 2. Max endDate in batch exceeds our window (all remaining markets are beyond our window)
+    if (markets.length < PAGE_SIZE || maxEndDateInBatch >= maxEndDate) {
+      break;
+    }
+    
+    // Move the cursor to fetch next page (add 1ms to avoid duplicates)
+    currentMinEndDate = new Date(maxEndDateInBatch.getTime() + 1).toISOString();
   }
-
-  const markets: PolymarketMarket[] = await response.json();
   
-  // Filter for binary markets with sufficient volume, ending within time window
-  const binaryMarkets = markets
+  console.log(`[Polymarket] Total fetched: ${allMarkets.length} markets across ${pageCount} pages`);
+  
+  // Filter for binary markets with sufficient volume, preserve end date ordering
+  const binaryMarkets = allMarkets
     .filter(m => parseOutcomes(m.outcomes).length === 2)
     .filter(m => parseFloat(m.volume || '0') >= MIN_VOLUME_THRESHOLD)
-    .filter(m => new Date(m.endDate) < new Date(maxEndDate))
     .slice(0, limit);
   
   console.log(`[Polymarket] Filtered to ${binaryMarkets.length} ending-soon markets with volume >= $${MIN_VOLUME_THRESHOLD.toLocaleString()}`);
