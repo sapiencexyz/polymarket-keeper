@@ -320,6 +320,7 @@ async function fetchEndingSoonestMarkets(): Promise<PolymarketMarket[]> {
   const maxEndDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
   
   const allMarkets: PolymarketMarket[] = [];
+  const seenConditionIds = new Set<string>(); // Track seen markets to deduplicate
   const PAGE_SIZE = 500;
   let pageCount = 0;
   
@@ -355,17 +356,27 @@ async function fetchEndingSoonestMarkets(): Promise<PolymarketMarket[]> {
     
     // Add markets that are within our time window
     const marketsInWindow = markets.filter(m => new Date(m.endDate) < maxEndDate);
-    allMarkets.push(...marketsInWindow);
+    
+    // Deduplicate and add markets that are within our time window
+    let newMarketsCount = 0;
+    for (const m of marketsInWindow) {
+      if (!seenConditionIds.has(m.conditionId)) {
+        seenConditionIds.add(m.conditionId);
+        allMarkets.push(m);
+        newMarketsCount++;
+      }
+    }
     
     // Stop conditions:
     // 1. Got less than PAGE_SIZE markets (no more pages)
     // 2. Max endDate in batch exceeds our window (all remaining markets are beyond our window)
-    if (markets.length < PAGE_SIZE || maxEndDateInBatch >= maxEndDate) {
+    // 3. No new markets added (we've seen all markets at this endDate)
+    if (markets.length < PAGE_SIZE || maxEndDateInBatch >= maxEndDate || newMarketsCount === 0) {
       break;
     }
     
-    // Move the cursor to fetch next page (add 1ms to avoid duplicates)
-    currentMinEndDate = new Date(maxEndDateInBatch.getTime() + 1).toISOString();
+    // Move the cursor to fetch next page (use exact time, dedup handles overlap)
+    currentMinEndDate = maxEndDateInBatch.toISOString();
   }
   
   console.log(`[Polymarket] Total fetched: ${allMarkets.length} markets across ${pageCount} pages`);
@@ -773,6 +784,7 @@ async function submitToAPI(
       }
       
       const conditionResult = await submitCondition(apiUrl, privateKey, condition);
+      
       if (conditionResult.success) {
         if (conditionResult.error) {
           conditionsSkipped++;
