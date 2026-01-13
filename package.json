@@ -11,7 +11,7 @@
     "settle:execute": "tsx settle-sapience-conditions.ts --execute",
     "settle:execute:wait": "tsx settle-sapience-conditions.ts --execute --wait",
     "settle:execute:wait:dry-run": "tsx settle-sapience-conditions.ts --execute --wait --dry-run",
-    "start": "pnpm generate:ending-soon && pnpm settle:execute:wait:dry-run"
+    "start": "pnpm generate:ending-soon && pnpm settle:execute:wait"
   },
   "dependencies": {
     "dotenv": "^16.4.0",

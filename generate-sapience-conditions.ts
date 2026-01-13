@@ -83,6 +83,9 @@ const DEFAULT_SAPIENCE_API_URL = 'https://api.sapience.xyz';
 // Ethereal chain ID (from @sapience/sdk/constants/chain.ts)
 const CHAIN_ID_ETHEREAL = 5064014 as const;
 
+// Minimum volume threshold (in USD) for including markets
+const MIN_VOLUME_THRESHOLD = 50_000;
+
 // ============ Types ============
 
 interface PolymarketMarket {
@@ -252,11 +255,14 @@ async function fetchPolymarketMarkets(limit: number = 100): Promise<PolymarketMa
 
   const markets: PolymarketMarket[] = await response.json();
   
-  // Filter for binary markets only
+  // Filter for binary markets with sufficient volume
   const binaryMarkets = markets
     .filter(m => parseOutcomes(m.outcomes).length === 2)
+    .filter(m => parseFloat(m.volume || '0') >= MIN_VOLUME_THRESHOLD)
     .sort((a, b) => parseFloat(b.volume || '0') - parseFloat(a.volume || '0'))
     .slice(0, limit);
+  
+  console.log(`[Polymarket] Filtered to ${binaryMarkets.length} markets with volume >= $${MIN_VOLUME_THRESHOLD.toLocaleString()}`);
   
   return binaryMarkets;
 }
@@ -285,11 +291,14 @@ async function fetchEndingSoonestMarkets(limit: number | undefined = undefined):
 
   const markets: PolymarketMarket[] = await response.json();
   
-  // Filter for binary markets ending within 30 minutes, preserve end date ordering
+  // Filter for binary markets with sufficient volume, ending within time window
   const binaryMarkets = markets
     .filter(m => parseOutcomes(m.outcomes).length === 2)
+    .filter(m => parseFloat(m.volume || '0') >= MIN_VOLUME_THRESHOLD)
     .filter(m => new Date(m.endDate) < new Date(maxEndDate))
     .slice(0, limit);
+  
+  console.log(`[Polymarket] Filtered to ${binaryMarkets.length} ending-soon markets with volume >= $${MIN_VOLUME_THRESHOLD.toLocaleString()}`);
   
   return binaryMarkets;
 }

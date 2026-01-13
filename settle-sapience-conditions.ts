@@ -73,6 +73,7 @@ interface SapienceCondition {
   resolver: string | null;
   claimStatement: string | null;
   chainId: number;
+  openInterest: string | null;  // Open interest in wei (string for BigInt compatibility)
 }
 
 interface GraphQLResponse<T> {
@@ -200,6 +201,7 @@ query UnresolvedConditions($now: Int!) {
     resolver
     claimStatement
     chainId
+    openInterest
   }
 }
 `;
@@ -368,14 +370,30 @@ async function main() {
   }
   
   try {
-    const conditions = await fetchUnresolvedConditions(sapienceApiUrl, options.limit);
+    const allConditions = await fetchUnresolvedConditions(sapienceApiUrl, options.limit);
     
-    if (conditions.length === 0) {
+    if (allConditions.length === 0) {
       console.log('No unsettled conditions found');
       return;
     }
     
-    console.log(`Processing ${conditions.length} conditions (mode: ${options.dryRun ? 'dry-run' : 'execute'})`);
+    // Filter to only conditions with non-zero open interest
+    const conditions = allConditions.filter(c => {
+      const oi = c.openInterest ? BigInt(c.openInterest) : BigInt(0);
+      return oi > BigInt(0);
+    });
+    
+    const skippedZeroOI = allConditions.length - conditions.length;
+    if (skippedZeroOI > 0) {
+      console.log(`Skipping ${skippedZeroOI} conditions with zero open interest`);
+    }
+    
+    if (conditions.length === 0) {
+      console.log('No conditions with non-zero open interest to settle');
+      return;
+    }
+    
+    console.log(`Processing ${conditions.length} conditions with open interest (mode: ${options.dryRun ? 'dry-run' : 'execute'})`);
     
     const results = {
       total: conditions.length,
