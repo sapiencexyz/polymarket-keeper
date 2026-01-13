@@ -3,19 +3,20 @@
 /**
  * Generate Sapience condition groups and conditions from Polymarket markets
  * 
- * This script fetches Polymarket markets and formats them for the Sapience database:
+ * This script fetches Polymarket markets ending within 24 hours and formats them 
+ * for the Sapience database:
  * - Uses Polymarket's conditionId as the Sapience conditionHash
- * - Groups related markets into ConditionGroups
- * - Adds Polymarket URLs to similarMarkets field
+ * - Groups related markets into ConditionGroups by event
+ * - Transforms match questions ("X vs Y") to clear "X beats Y?" format
  * - Optionally submits to Sapience API if SAPIENCE_API_URL and ADMIN_PRIVATE_KEY are set
  * 
  * Usage: 
- *   tsx packages/api/scripts/generate-sapience-conditions.ts
- *   tsx packages/api/scripts/generate-sapience-conditions.ts --ending-soon
+ *   tsx generate-sapience-conditions.ts
+ *   tsx generate-sapience-conditions.ts --dry-run
  * 
  * Options:
- *   --ending-soon  Fetch 10 markets ending soonest and push to API (requires API credentials)
- *   --help         Show this help message
+ *   --dry-run  Show what would be submitted without actually submitting
+ *   --help     Show this help message
  */
 
 import { writeFileSync } from 'fs';
@@ -30,7 +31,6 @@ const ADMIN_AUTHENTICATE_MSG = 'Sign this message to authenticate for admin acti
 // ============ CLI Arguments ============
 
 interface CLIOptions {
-  endingSoon: boolean;
   dryRun: boolean;
   help: boolean;
 }
@@ -38,7 +38,6 @@ interface CLIOptions {
 function parseArgs(): CLIOptions {
   const args = process.argv.slice(2);
   return {
-    endingSoon: args.includes('--ending-soon'),
     dryRun: args.includes('--dry-run'),
     help: args.includes('--help') || args.includes('-h'),
   };
@@ -46,30 +45,28 @@ function parseArgs(): CLIOptions {
 
 function showHelp(): void {
   console.log(`
-Usage: tsx packages/api/scripts/generate-sapience-conditions.ts [options]
+Usage: tsx generate-sapience-conditions.ts [options]
+
+Fetches markets ending within 24 hours from Polymarket and submits them to the Sapience API.
 
 Options:
-  --ending-soon  Fetch markets ending soonest (ordered by end date)
   --dry-run      Show what would be submitted without actually submitting
   --help, -h     Show this help message
 
-Environment Variables (optional):
-  SAPIENCE_API_URL     API URL to submit conditions (e.g., http://localhost:3001)
+Environment Variables (required for API submission):
+  SAPIENCE_API_URL     API URL to submit conditions (default: https://api.sapience.xyz)
   ADMIN_PRIVATE_KEY    64-char hex private key for signing admin requests
 
 Examples:
-  # Generate JSON file only (default: top 100 by volume)
-  tsx packages/api/scripts/generate-sapience-conditions.ts
-
-  # Generate JSON with soonest-ending markets
-  tsx packages/api/scripts/generate-sapience-conditions.ts --ending-soon
+  # Generate JSON file only
+  tsx generate-sapience-conditions.ts
 
   # Dry run - show what would be submitted
-  tsx packages/api/scripts/generate-sapience-conditions.ts --ending-soon --dry-run
+  tsx generate-sapience-conditions.ts --dry-run
 
   # Fetch and push to API
   SAPIENCE_API_URL=http://localhost:3001 ADMIN_PRIVATE_KEY=abc123... \\
-    tsx packages/api/scripts/generate-sapience-conditions.ts --ending-soon
+    tsx generate-sapience-conditions.ts
 `); 
 }
 
@@ -240,14 +237,13 @@ function getPolymarketUrl(market: PolymarketMarket): string {
 }
 
 /**
- * Transform "X vs. Y" match questions to "X beats Y?" format
- * This makes it clear what Yes/No means for sports markets.
+ * Transform sports market questions to clearer formats:
+ * - "X vs. Y" → "X beats Y? (context)"
+ * - "Spread: Team (-X.5)" → "Team covers -X.5 spread vs Opponent?"
+ * - "Map Handicap: Team (-X.5)" → "Team covers -X.5 handicap vs Opponent?"
  * 
- * Only transforms if:
- * - Question matches "X vs. Y" pattern
- * - Outcomes are team names (not Yes/No or Over/Under)
- * 
- * The first outcome in Polymarket = "Yes" = first team wins
+ * Preserves prefix/suffix context from original question.
+ * The first outcome in Polymarket = "Yes" = first team wins/covers
  */
 function transformMatchQuestion(market: PolymarketMarket): string {
   const outcomes = parseOutcomes(market.outcomes);
@@ -261,56 +257,63 @@ function transformMatchQuestion(market: PolymarketMarket): string {
     return market.question;
   }
   
-  // Detect spread markets: "Spread: Team A (-X.5)"
-  const spreadMatch = market.question.match(/^Spread:\s*(.+?)\s*\(([+-]?\d+(?:\.\d+)?)\)$/i);
+  // Detect spread markets: "1H Spread: Team (-X.5)" or "Spread: Team (-X.5)"
+  const spreadMatch = market.question.match(/^(?:(\S+)\s+)?Spread:\s*.+?\s*\(([+-]?\d+(?:\.\d+)?)\)$/i);
   if (spreadMatch) {
-    const [, , spread] = spreadMatch;
-    // outcomes[0] = favored team, outcomes[1] = underdog
-    return `${outcomes[0]} covers ${spread} spread vs ${outcomes[1]}?`;
+    const [, prefix, spread] = spreadMatch;
+    const context = prefix ? ` (${prefix})` : '';
+    const transformed = `${outcomes[0]} covers ${spread} spread vs ${outcomes[1]}?${context}`;
+    console.log(`[Transform Spread] "${market.question}" → "${transformed}"`);
+    return transformed;
   }
   
-  // Detect "X vs. Y" or "X vs Y" pattern (with optional prefix like "LoL: " or suffix like "(BO3)")
-  const vsMatch = market.question.match(/^(?:.+?:\s*)?(.+?)\s+vs\.?\s+(.+?)(?:\s*\(.+\))?$/i);
+  // Detect handicap markets: "Map Handicap: Team (-X.5)" or "Handicap: Team (-X.5)"
+  const handicapMatch = market.question.match(/^(?:(\S+)\s+)?(?:Map\s+)?Handicap:\s*.+?\s*\(([+-]?\d+(?:\.\d+)?)\)$/i);
+  if (handicapMatch) {
+    const [, prefix, handicap] = handicapMatch;
+    const context = prefix ? ` (${prefix})` : '';
+    const transformed = `${outcomes[0]} covers ${handicap} handicap vs ${outcomes[1]}?${context}`;
+    console.log(`[Transform Handicap] "${market.question}" → "${transformed}"`);
+    return transformed;
+  }
+  
+  // Detect "X vs. Y" pattern with optional prefix and suffix
+  // Patterns supported:
+  //   "Prefix: Team1 vs Team2 (Suffix)" - e.g., "LoL: GnG vs FN (BO3)"
+  //   "Prefix: Team1 vs Team2 - Suffix" - e.g., "CS: Aurora vs HOTU - Map 1 Winner"
+  //   "Team1 vs Team2: Suffix" - e.g., "Suns vs Heat: 1H Moneyline"
+  //   "Team1 vs Team2 (Suffix)" - e.g., "Team1 vs Team2 (W)"
+  const vsMatch = market.question.match(
+    /^(?:(.+?):\s+)?(.+?)\s+vs\.?\s+(.+?)(?::\s+(.+?))?(?:\s+-\s+(.+?))?(?:\s+\((.+?)\))?$/i
+  );
   if (!vsMatch) return market.question;
   
+  const [, prefix, , , colonSuffix, dashSuffix, parenSuffix] = vsMatch;
+  
+  // Build context string from prefix and suffixes
+  const contextParts: string[] = [];
+  if (prefix) contextParts.push(prefix);
+  if (parenSuffix) contextParts.push(parenSuffix);
+  if (dashSuffix) contextParts.push(dashSuffix);
+  if (colonSuffix) contextParts.push(colonSuffix);
+  
+  const context = contextParts.length > 0 ? ` (${contextParts.join(', ')})` : '';
+  
+  // Log transformation for debugging
+  const transformed = `${outcomes[0]} beats ${outcomes[1]}?${context}`;
+  console.log(`[Transform] "${market.question}" → "${transformed}"`);
+  
   // Rephrase: first outcome (Yes) beats second outcome (No)
-  // Using outcomes array ensures we get the exact team names as registered
-  return `${outcomes[0]} beats ${outcomes[1]}?`;
+  return transformed;
 }
 
-// ============ Data Fetching ============
-
-async function fetchPolymarketMarkets(limit: number = 100): Promise<PolymarketMarket[]> {
-  const url = `https://gamma-api.polymarket.com/markets?limit=1000&closed=false&order=volume&ascending=false`;
-  
-  const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
-
-  if (!response.ok) {
-    const errorBody = await response.text().catch(() => '');
-    console.error(`[Polymarket API] Failed to fetch markets: HTTP ${response.status} ${response.statusText}`);
-    if (errorBody) console.error(`[Polymarket API] Response body: ${errorBody}`);
-    throw new Error(`Polymarket API error: ${response.status} ${response.statusText}`);
-  }
-
-  const markets: PolymarketMarket[] = await response.json();
-  
-  // Filter for binary markets only (volume filtering happens after grouping)
-  const binaryMarkets = markets
-    .filter(m => parseOutcomes(m.outcomes).length === 2)
-    .sort((a, b) => parseFloat(b.volume || '0') - parseFloat(a.volume || '0'))
-    .slice(0, limit);
-  
-  console.log(`[Polymarket] Fetched ${binaryMarkets.length} binary markets`);
-  
-  return binaryMarkets;
-}
 
 /**
  * Fetch markets that end soonest (for --ending-soon mode)
  * Orders by endDate ascending, no volume sorting
  * Iteratively fetches pages by moving end_date_min based on max endDate from previous response
  */
-async function fetchEndingSoonestMarkets(limit: number | undefined = undefined): Promise<PolymarketMarket[]> {
+async function fetchEndingSoonestMarkets(): Promise<PolymarketMarket[]> {
   // Minimum end time: current time + 1 minute (ISO format for API)
   let currentMinEndDate = new Date(Date.now() + 60 * 1000).toISOString();
   // Maximum end time: current time + 24 hours
@@ -369,8 +372,7 @@ async function fetchEndingSoonestMarkets(limit: number | undefined = undefined):
   
   // Filter for binary markets only (volume filtering happens after grouping)
   const binaryMarkets = allMarkets
-    .filter(m => parseOutcomes(m.outcomes).length === 2)
-    .slice(0, limit);
+    .filter(m => parseOutcomes(m.outcomes).length === 2);
   
   console.log(`[Polymarket] Filtered to ${binaryMarkets.length} binary ending-soon markets`);
   
@@ -844,10 +846,8 @@ async function main() {
   const hasAPICredentials = apiUrl && privateKey;
   
   try {
-    // Fetch Polymarket markets based on mode
-    const markets = options.endingSoon
-      ? await fetchEndingSoonestMarkets(500)
-      : await fetchPolymarketMarkets(100);
+    // Fetch Polymarket markets ending within 24 hours
+    const markets = await fetchEndingSoonestMarkets();
     
     const sapienceData = groupMarkets(markets);
     
