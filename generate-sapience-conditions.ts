@@ -70,7 +70,7 @@ Examples:
   # Fetch and push to API
   SAPIENCE_API_URL=http://localhost:3001 ADMIN_PRIVATE_KEY=abc123... \\
     tsx packages/api/scripts/generate-sapience-conditions.ts --ending-soon
-`);
+`); 
 }
 
 // ============ Constants ============
