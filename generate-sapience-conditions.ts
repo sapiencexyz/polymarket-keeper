@@ -294,14 +294,13 @@ async function fetchPolymarketMarkets(limit: number = 100): Promise<PolymarketMa
 
   const markets: PolymarketMarket[] = await response.json();
   
-  // Filter for binary markets with sufficient volume
+  // Filter for binary markets only (volume filtering happens after grouping)
   const binaryMarkets = markets
     .filter(m => parseOutcomes(m.outcomes).length === 2)
-    .filter(m => parseFloat(m.volume || '0') >= MIN_VOLUME_THRESHOLD)
     .sort((a, b) => parseFloat(b.volume || '0') - parseFloat(a.volume || '0'))
     .slice(0, limit);
   
-  console.log(`[Polymarket] Filtered to ${binaryMarkets.length} markets with volume >= $${MIN_VOLUME_THRESHOLD.toLocaleString()}`);
+  console.log(`[Polymarket] Fetched ${binaryMarkets.length} binary markets`);
   
   return binaryMarkets;
 }
@@ -368,13 +367,12 @@ async function fetchEndingSoonestMarkets(limit: number | undefined = undefined):
   
   console.log(`[Polymarket] Total fetched: ${allMarkets.length} markets across ${pageCount} pages`);
   
-  // Filter for binary markets with sufficient volume, preserve end date ordering
+  // Filter for binary markets only (volume filtering happens after grouping)
   const binaryMarkets = allMarkets
     .filter(m => parseOutcomes(m.outcomes).length === 2)
-    .filter(m => parseFloat(m.volume || '0') >= MIN_VOLUME_THRESHOLD)
     .slice(0, limit);
   
-  console.log(`[Polymarket] Filtered to ${binaryMarkets.length} ending-soon markets with volume >= $${MIN_VOLUME_THRESHOLD.toLocaleString()}`);
+  console.log(`[Polymarket] Filtered to ${binaryMarkets.length} binary ending-soon markets`);
   
   return binaryMarkets;
 }
@@ -455,10 +453,36 @@ function groupMarkets(markets: PolymarketMarket[]): SapienceOutput {
   
   console.log(`[Events] Total unique events: ${seenEvents.size}\n`);
   
+  // Apply volume filter: keep entire group if at least one market has sufficient volume
+  const filteredGroupsMap = new Map<string, { markets: PolymarketMarket[]; eventSlug?: string }>();
+  let groupsFilteredOut = 0;
+  
+  for (const [groupTitle, groupData] of groupsMap) {
+    const hasHighVolumeMarket = groupData.markets.some(
+      m => parseFloat(m.volume || '0') >= MIN_VOLUME_THRESHOLD
+    );
+    
+    if (hasHighVolumeMarket) {
+      filteredGroupsMap.set(groupTitle, groupData);
+    } else {
+      groupsFilteredOut++;
+    }
+  }
+  
+  // Filter ungrouped markets by volume
+  const filteredUngrouped = ungrouped.filter(
+    m => parseFloat(m.volume || '0') >= MIN_VOLUME_THRESHOLD
+  );
+  
+  const ungroupedFilteredOut = ungrouped.length - filteredUngrouped.length;
+  
+  console.log(`[Volume Filter] Kept ${filteredGroupsMap.size} groups (filtered out ${groupsFilteredOut} low-volume groups)`);
+  console.log(`[Volume Filter] Kept ${filteredUngrouped.length} ungrouped markets (filtered out ${ungroupedFilteredOut})`);
+  
   // Create ConditionGroups
   const groups: SapienceConditionGroup[] = [];
   
-  for (const [groupTitle, { markets: groupMarkets, eventSlug }] of groupsMap) {
+  for (const [groupTitle, { markets: groupMarkets, eventSlug }] of filteredGroupsMap) {
     const conditions = groupMarkets.map(m => transformToSapienceCondition(m, groupTitle));
     
     // Use event description if available, otherwise use first market's description
@@ -491,17 +515,20 @@ function groupMarkets(markets: PolymarketMarket[]): SapienceOutput {
   
   // Create ungrouped conditions (include conditions from single-condition groups without groupTitle)
   const ungroupedConditions = [
-    ...ungrouped.map(m => transformToSapienceCondition(m)),
+    ...filteredUngrouped.map(m => transformToSapienceCondition(m)),
     ...singleConditionGroups.flatMap(g => g.conditions.map(c => ({ ...c, groupTitle: undefined }))),
   ];
+  
+  // Count total conditions after filtering
+  const totalConditions = multiConditionGroups.reduce((sum, g) => sum + g.conditions.length, 0) + ungroupedConditions.length;
   
   return {
     metadata: {
       generatedAt: new Date().toISOString(),
       source: 'Polymarket Gamma API',
-      totalConditions: markets.length,
+      totalConditions,
       totalGroups: multiConditionGroups.length,
-      binaryConditions: markets.length,
+      binaryConditions: totalConditions,
     },
     groups: multiConditionGroups,
     ungroupedConditions,
@@ -730,6 +757,7 @@ async function submitToAPI(
         groupsSkipped++;
       } else {
         groupsCreated++;
+        console.log(`[API] Created group: "${group.title}" (${group.conditions.length} conditions)`);
       }
     } else {
       groupsFailed++;
@@ -748,6 +776,7 @@ async function submitToAPI(
           conditionsSkipped++;
         } else {
           conditionsCreated++;
+          console.log(`[API] Created condition: "${condition.question.slice(0, 50)}${condition.question.length > 50 ? '...' : ''}"`);
         }
       } else {
         conditionsFailed++;
@@ -769,6 +798,7 @@ async function submitToAPI(
         conditionsSkipped++;
       } else {
         conditionsCreated++;
+        console.log(`[API] Created condition: "${condition.question.slice(0, 50)}${condition.question.length > 50 ? '...' : ''}" (ungrouped)`);
       }
     } else {
       conditionsFailed++;
