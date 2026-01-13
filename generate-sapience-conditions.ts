@@ -95,7 +95,10 @@ interface PolymarketMarket {
   questionID?: string;
   sportsMarketType?: string;
   events?: Array<{
+    id?: string;
+    title?: string;
     slug?: string;
+    description?: string;
     seriesSlug?: string;
     series?: Array<{
       slug?: string;
@@ -326,34 +329,49 @@ function transformToSapienceCondition(market: PolymarketMarket, groupTitle?: str
 }
 
 function groupMarkets(markets: PolymarketMarket[]): SapienceOutput {
-  const groupsMap = new Map<string, PolymarketMarket[]>();
+  const groupsMap = new Map<string, { markets: PolymarketMarket[]; eventSlug?: string }>();
   const ungrouped: PolymarketMarket[] = [];
   
-  // Separate grouped and ungrouped markets
+  // Log event names for verification
+  console.log('\n[Events] Discovered event titles:');
+  const seenEvents = new Set<string>();
+  
+  // Separate grouped and ungrouped markets based on event data
   for (const market of markets) {
-    if (market.groupItemTitle) {
-      // Derive group title from the question
-      // e.g., "Will X win the 2028 Presidential Election?" -> "2028 Presidential Election"
-      const groupTitle = deriveGroupTitle(market);
+    const event = market.events?.[0];
+    
+    if (event?.title) {
+      // Log unique event titles for readability verification
+      if (!seenEvents.has(event.title)) {
+        seenEvents.add(event.title);
+        console.log(`  - "${event.title}" (slug: ${event.slug || 'N/A'})`);
+      }
+      
+      // Use event title as the group title
+      const groupTitle = event.title;
       
       if (!groupsMap.has(groupTitle)) {
-        groupsMap.set(groupTitle, []);
+        groupsMap.set(groupTitle, { markets: [], eventSlug: event.slug });
       }
-      groupsMap.get(groupTitle)!.push(market);
+      groupsMap.get(groupTitle)!.markets.push(market);
     } else {
       ungrouped.push(market);
     }
   }
   
+  console.log(`[Events] Total unique events: ${seenEvents.size}\n`);
+  
   // Create ConditionGroups
   const groups: SapienceConditionGroup[] = [];
   
-  for (const [groupTitle, groupMarkets] of groupsMap) {
+  for (const [groupTitle, { markets: groupMarkets, eventSlug }] of groupsMap) {
     const conditions = groupMarkets.map(m => transformToSapienceCondition(m, groupTitle));
     
-    // Generate group description from first market
-    const sampleDescription = groupMarkets[0]?.description || '';
-    const groupDescription = sampleDescription.split('\n')[0] || groupTitle;
+    // Use event description if available, otherwise use first market's description
+    const event = groupMarkets[0]?.events?.[0];
+    const groupDescription = event?.description?.split('\n')[0] || 
+                            groupMarkets[0]?.description?.split('\n')[0] || 
+                            groupTitle;
     
     // Compute group categorySlug by majority vote from conditions
     const categorySlug = computeGroupCategory(conditions);
@@ -383,41 +401,6 @@ function groupMarkets(markets: PolymarketMarket[]): SapienceOutput {
     groups,
     ungroupedConditions,
   };
-}
-
-/**
- * Derive a group title from the market question
- * Examples:
- * - "Will X win the 2028 US Presidential Election?" -> "2028 US Presidential Election"
- * - "Will X win the 2025-26 Premier League?" -> "2025-26 Premier League"
- */
-function deriveGroupTitle(market: PolymarketMarket): string {
-  const question = market.question;
-  
-  // Common patterns
-  const patterns = [
-    /Will .+ (win|get|be|receive) (?:the )?(.+)\?/i,
-    /Will .+ (?:in|from) (.+)\?/i,
-  ];
-  
-  for (const pattern of patterns) {
-    const match = question.match(pattern);
-    if (match) {
-      let title = match[match.length - 1].trim();
-      // Clean up common suffixes
-      title = title.replace(/^(win|get|be|receive) /, '');
-      return title;
-    }
-  }
-  
-  // Fallback: use groupItemTitle context
-  if (market.groupItemTitle) {
-    // Remove the item title from the question to get the group
-    const cleaned = question.replace(market.groupItemTitle, '').replace(/^Will\s+/, '').replace(/\?$/, '');
-    return cleaned.trim();
-  }
-  
-  return 'Miscellaneous Markets';
 }
 
 // ============ Export Functions ============
