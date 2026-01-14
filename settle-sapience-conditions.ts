@@ -46,7 +46,7 @@ import { polygon } from 'viem/chains';
 // ============ Constants ============
 
 // ConditionalTokensReader contract on Polygon
-const CONDITIONAL_TOKENS_READER_ADDRESS = '0xe94a1978f725cefa53487adbc588fdddf01e20ff' as Address;
+const CONDITIONAL_TOKENS_READER_ADDRESS = '0x97b356E9689dCEa3a268Ac6D7d8A87A24fa95ae2' as Address;
 
 // Default Sapience API URL
 const DEFAULT_SAPIENCE_API_URL = 'https://api.sapience.xyz/graphql';
@@ -335,7 +335,7 @@ async function main() {
   
   const polygonRpcUrl = process.env.POLYGON_RPC_URL;
   const privateKey = process.env.ADMIN_PRIVATE_KEY;
-  const sapienceApiUrl = process.env.SAPIENCE_API_URL || DEFAULT_SAPIENCE_API_URL;
+  const sapienceApiUrl = process.env.SAPIENCE_API_URL + '/graphql' || DEFAULT_SAPIENCE_API_URL;
   
   if (!polygonRpcUrl) {
     console.error('POLYGON_RPC_URL environment variable is required');
