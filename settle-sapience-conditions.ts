@@ -335,7 +335,7 @@ async function main() {
   
   const polygonRpcUrl = process.env.POLYGON_RPC_URL;
   const privateKey = process.env.ADMIN_PRIVATE_KEY;
-  const sapienceApiUrl = process.env.SAPIENCE_API_URL + '/graphql' || DEFAULT_SAPIENCE_API_URL;
+  const sapienceApiUrl = process.env.SAPIENCE_API_URL || DEFAULT_SAPIENCE_API_URL;
   
   if (!polygonRpcUrl) {
     console.error('POLYGON_RPC_URL environment variable is required');
