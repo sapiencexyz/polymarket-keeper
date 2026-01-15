@@ -298,6 +298,18 @@ async function checkAndSettleCondition(
     }
     
     // Execute the settlement
+    console.log(`[${conditionId}] Estimating gas...`);
+    const estimatedGas = await publicClient.estimateContractGas({
+      address: CONDITIONAL_TOKENS_READER_ADDRESS,
+      abi: conditionalTokensReaderAbi,
+      functionName: 'requestResolution',
+      args: [conditionId],
+      value: nativeFee,
+      account: walletClient.account,
+    });
+    const gasLimit = (estimatedGas * 130n) / 100n; // Add 30% buffer
+    console.log(`[${conditionId}] Estimated gas: ${estimatedGas}, using limit: ${gasLimit}`);
+
     console.log(`[${conditionId}] Sending requestResolution transaction...`);
     const hash = await walletClient.writeContract({
       address: CONDITIONAL_TOKENS_READER_ADDRESS,
@@ -305,6 +317,7 @@ async function checkAndSettleCondition(
       functionName: 'requestResolution',
       args: [conditionId],
       value: nativeFee,
+      gas: gasLimit,
     });
     
     console.log(`[${conditionId}] Transaction sent: ${hash}`);
