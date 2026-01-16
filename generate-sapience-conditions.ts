@@ -452,7 +452,7 @@ async function fetchEndingSoonestMarkets(): Promise<PolymarketMarket[]> {
   
   while (true) {
     pageCount++;
-    const url = `https://gamma-api.polymarket.com/markets?limit=${PAGE_SIZE}&closed=false&order=endDate&ascending=true&end_date_min=${currentMinEndDate}`;
+    const url = `https://gamma-api.polymarket.com/markets?limit=${PAGE_SIZE}&active=true&closed=false&order=endDate&ascending=true&end_date_min=${currentMinEndDate}`;
     
     const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
 
