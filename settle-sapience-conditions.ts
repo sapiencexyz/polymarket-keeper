@@ -74,6 +74,9 @@ interface SapienceCondition {
   claimStatement: string | null;
   chainId: number;
   openInterest: string | null;  // Open interest in wei (string for BigInt compatibility)
+  _count: {
+    attestations: number;
+  } | null;
 }
 
 interface GraphQLResponse<T> {
@@ -202,6 +205,9 @@ query UnresolvedConditions($now: Int!) {
     claimStatement
     chainId
     openInterest
+    _count {
+      attestations
+    }
   }
 }
 `;
@@ -395,23 +401,32 @@ async function main() {
       return;
     }
     
-    // Filter to only conditions with non-zero open interest
+    // Filter to only conditions with non-zero open interest OR at least one forecast
+    let includedDueToForecasts = 0;
     const conditions = allConditions.filter(c => {
       const oi = c.openInterest ? BigInt(c.openInterest) : BigInt(0);
-      return oi > BigInt(0);
+      const hasOpenInterest = oi > BigInt(0);
+      const hasForecast = (c._count?.attestations ?? 0) > 0;
+      if (!hasOpenInterest && hasForecast) {
+        includedDueToForecasts++;
+      }
+      return hasOpenInterest || hasForecast;
     });
-    
-    const skippedZeroOI = allConditions.length - conditions.length;
-    if (skippedZeroOI > 0) {
-      console.log(`Skipping ${skippedZeroOI} conditions with zero open interest`);
+
+    const skipped = allConditions.length - conditions.length;
+    if (skipped > 0) {
+      console.log(`Skipping ${skipped} conditions with zero open interest and no forecasts`);
     }
-    
+    if (includedDueToForecasts > 0) {
+      console.log(`Including ${includedDueToForecasts} conditions with zero OI but forecasts > 0`);
+    }
+
     if (conditions.length === 0) {
-      console.log('No conditions with non-zero open interest to settle');
+      console.log('No conditions with open interest or forecasts to settle');
       return;
     }
-    
-    console.log(`Processing ${conditions.length} conditions with open interest (mode: ${options.dryRun ? 'dry-run' : 'execute'})`);
+
+    console.log(`Processing ${conditions.length} conditions with open interest or forecasts (mode: ${options.dryRun ? 'dry-run' : 'execute'})`);
     
     const results = {
       total: conditions.length,

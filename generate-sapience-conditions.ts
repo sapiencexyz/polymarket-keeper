@@ -561,24 +561,14 @@ function groupMarkets(markets: PolymarketMarket[]): SapienceOutput {
   const groupsMap = new Map<string, { markets: PolymarketMarket[]; eventSlug?: string }>();
   const ungrouped: PolymarketMarket[] = [];
   
-  // Log event names for verification
-  console.log('\n[Events] Discovered event titles:');
-  const seenEvents = new Set<string>();
-  
   // Separate grouped and ungrouped markets based on event data
   for (const market of markets) {
     const event = market.events?.[0];
-    
+
     if (event?.title) {
-      // Log unique event titles for readability verification
-      if (!seenEvents.has(event.title)) {
-        seenEvents.add(event.title);
-        console.log(`  - "${event.title}" (slug: ${event.slug || 'N/A'})`);
-      }
-      
       // Use event title as the group title
       const groupTitle = event.title;
-      
+
       if (!groupsMap.has(groupTitle)) {
         groupsMap.set(groupTitle, { markets: [], eventSlug: event.slug });
       }
@@ -587,8 +577,6 @@ function groupMarkets(markets: PolymarketMarket[]): SapienceOutput {
       ungrouped.push(market);
     }
   }
-  
-  console.log(`[Events] Total unique events: ${seenEvents.size}\n`);
   
   // Apply volume filter: keep entire group if at least one market has sufficient volume
   const filteredGroupsMap = new Map<string, { markets: PolymarketMarket[]; eventSlug?: string }>();
