@@ -2,18 +2,18 @@
 /// <reference types="node" />
 /**
  * Generate Sapience condition groups and conditions from Polymarket markets
- * 
- * This script fetches Polymarket markets ending within 24 hours and formats them 
+ *
+ * This script fetches Polymarket markets ending within 7 days and formats them
  * for the Sapience database:
  * - Uses Polymarket's conditionId as the Sapience conditionHash
  * - Groups related markets into ConditionGroups by event
  * - Transforms match questions ("X vs Y") to clear "X beats Y?" format
  * - Optionally submits to Sapience API if SAPIENCE_API_URL and ADMIN_PRIVATE_KEY are set
- * 
- * Usage: 
+ *
+ * Usage:
  *   tsx generate-sapience-conditions.ts
  *   tsx generate-sapience-conditions.ts --dry-run
- * 
+ *
  * Options:
  *   --dry-run  Show what would be submitted without actually submitting
  *   --help     Show this help message
@@ -47,7 +47,7 @@ function showHelp(): void {
   console.log(`
 Usage: tsx generate-sapience-conditions.ts [options]
 
-Fetches markets ending within 24 hours from Polymarket and submits them to the Sapience API.
+Fetches markets ending within 7 days from Polymarket and submits them to the Sapience API.
 
 Options:
   --dry-run      Show what would be submitted without actually submitting
@@ -67,7 +67,7 @@ Examples:
   # Fetch and push to API
   SAPIENCE_API_URL=http://localhost:3001 ADMIN_PRIVATE_KEY=abc123... \\
     tsx generate-sapience-conditions.ts
-`); 
+`);
 }
 
 // ============ Constants ============
@@ -440,8 +440,8 @@ function transformMatchQuestion(market: PolymarketMarket): string {
 async function fetchEndingSoonestMarkets(): Promise<PolymarketMarket[]> {
   // Minimum end time: current time + 1 minute (ISO format for API)
   let currentMinEndDate = new Date(Date.now() + 60 * 1000).toISOString();
-  // Maximum end time: current time + 24 hours
-  const maxEndDate = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  // Maximum end time: current time + 7 days
+  const maxEndDate = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
   
   const allMarkets: PolymarketMarket[] = [];
   const seenConditionIds = new Set<string>(); // Track seen markets to deduplicate
