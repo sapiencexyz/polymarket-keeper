@@ -216,6 +216,46 @@ function inferSapienceCategorySlug(market: PolymarketMarket): SapienceCategorySl
 
 // ============ Utilities ============
 
+/**
+ * Fetch with exponential backoff retry for 500 errors
+ */
+async function fetchWithRetry(
+  url: string,
+  options?: RequestInit,
+  maxRetries: number = 10,
+  baseDelayMs: number = 1000
+): Promise<Response> {
+  let lastError: Error | undefined;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+
+      // Retry on 5xx server errors
+      if (response.status >= 500 && response.status < 600 && attempt < maxRetries) {
+        const delay = baseDelayMs * Math.pow(2, attempt) + Math.random() * 1000;
+        console.log(`[Retry] HTTP ${response.status}, retrying in ${Math.round(delay)}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+
+      return response;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+
+      // Retry on network errors
+      if (attempt < maxRetries) {
+        const delay = baseDelayMs * Math.pow(2, attempt) + Math.random() * 1000;
+        console.log(`[Retry] Network error: ${lastError.message}, retrying in ${Math.round(delay)}ms (attempt ${attempt + 1}/${maxRetries})`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+    }
+  }
+
+  throw lastError || new Error('Max retries exceeded');
+}
+
 function parseOutcomes(outcomes: string[] | string): string[] {
   if (Array.isArray(outcomes)) return outcomes;
   if (typeof outcomes === 'string') {
@@ -454,7 +494,7 @@ async function fetchEndingSoonestMarkets(): Promise<PolymarketMarket[]> {
     pageCount++;
     const url = `https://gamma-api.polymarket.com/markets?limit=${PAGE_SIZE}&active=true&closed=false&order=endDate&ascending=true&end_date_min=${currentMinEndDate}`;
     
-    const response = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    const response = await fetchWithRetry(url, { headers: { 'Accept': 'application/json' } });
 
     if (!response.ok) {
       const errorBody = await response.text().catch(() => '');
@@ -708,7 +748,7 @@ async function submitConditionGroup(
   try {
     const authHeaders = await getAdminAuthHeaders(privateKey);
     
-    const response = await fetch(`${apiUrl}/admin/conditionGroups`, {
+    const response = await fetchWithRetry(`${apiUrl}/admin/conditionGroups`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -751,7 +791,7 @@ async function submitCondition(
   try {
     const authHeaders = await getAdminAuthHeaders(privateKey);
     
-    const response = await fetch(`${apiUrl}/admin/conditions`, {
+    const response = await fetchWithRetry(`${apiUrl}/admin/conditions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
