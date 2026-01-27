@@ -83,6 +83,16 @@ const CHAIN_ID_ETHEREAL = 5064014 as const;
 // Minimum volume threshold (in USD) for including markets
 const MIN_VOLUME_THRESHOLD = 50_000;
 
+// Markets matching these patterns are always included regardless of volume
+const ALWAYS_INCLUDE_PATTERNS = [
+  /\bfed\b/i,                                    // Federal Reserve
+  /\bfederal reserve\b/i,                        // Federal Reserve (explicit)
+  /\bs&p 500\b/i,                                // S&P 500
+  /\bspx\b/i,                                    // S&P 500 (ticker)
+  /price of Bitcoin.+on \w+ \d+/i,               // "Will the price of Bitcoin be... on January 28?"
+  /price of Ethereum.+on \w+ \d+/i,              // "Will the price of Ethereum be above... on January 28?"
+];
+
 // ============ Types ============
 
 interface PolymarketMarket {
@@ -254,6 +264,28 @@ async function fetchWithRetry(
   }
 
   throw lastError || new Error('Max retries exceeded');
+}
+
+/**
+ * Check if a question matches always-include patterns
+ * (Fed, S&P 500, Bitcoin/Ethereum daily price markets)
+ */
+function matchesAlwaysIncludePatterns(question: string): boolean {
+  return ALWAYS_INCLUDE_PATTERNS.some(pattern => pattern.test(question));
+}
+
+/**
+ * Check if a market should always be included regardless of volume
+ */
+function shouldAlwaysInclude(market: PolymarketMarket): boolean {
+  return matchesAlwaysIncludePatterns(market.question || '');
+}
+
+/**
+ * Check if a condition should always be included regardless of category
+ */
+function shouldAlwaysIncludeCondition(condition: SapienceCondition): boolean {
+  return matchesAlwaysIncludePatterns(condition.question || '');
 }
 
 function parseOutcomes(outcomes: string[] | string): string[] {
@@ -619,24 +651,26 @@ function groupMarkets(markets: PolymarketMarket[]): SapienceOutput {
   }
   
   // Apply volume filter: keep entire group if at least one market has sufficient volume
+  // OR if at least one market matches always-include patterns
   const filteredGroupsMap = new Map<string, { markets: PolymarketMarket[]; eventSlug?: string }>();
   let groupsFilteredOut = 0;
-  
+
   for (const [groupTitle, groupData] of groupsMap) {
     const hasHighVolumeMarket = groupData.markets.some(
       m => parseFloat(m.volume || '0') >= MIN_VOLUME_THRESHOLD
     );
-    
-    if (hasHighVolumeMarket) {
+    const hasAlwaysIncludeMarket = groupData.markets.some(shouldAlwaysInclude);
+
+    if (hasHighVolumeMarket || hasAlwaysIncludeMarket) {
       filteredGroupsMap.set(groupTitle, groupData);
     } else {
       groupsFilteredOut++;
     }
   }
-  
-  // Filter ungrouped markets by volume
+
+  // Filter ungrouped markets by volume OR always-include patterns
   const filteredUngrouped = ungrouped.filter(
-    m => parseFloat(m.volume || '0') >= MIN_VOLUME_THRESHOLD
+    m => parseFloat(m.volume || '0') >= MIN_VOLUME_THRESHOLD || shouldAlwaysInclude(m)
   );
   
   const ungroupedFilteredOut = ungrouped.length - filteredUngrouped.length;
@@ -838,25 +872,39 @@ async function submitCondition(
 }
 
 /**
+ * Check if a condition should be included (not crypto OR always-include)
+ */
+function shouldIncludeCondition(condition: SapienceCondition): boolean {
+  return condition.categorySlug !== 'crypto' || shouldAlwaysIncludeCondition(condition);
+}
+
+/**
+ * Check if a group should be included (not crypto OR has always-include conditions)
+ */
+function shouldIncludeGroup(group: SapienceConditionGroup): boolean {
+  return group.categorySlug !== 'crypto' || group.conditions.some(shouldAlwaysIncludeCondition);
+}
+
+/**
  * Print what would be submitted in dry-run mode
  */
 function printDryRun(data: SapienceOutput): void {
   console.log('\n========== DRY RUN ==========\n');
-  
-  // Count non-crypto items
-  const nonCryptoGroups = data.groups.filter(g => g.categorySlug !== 'crypto');
-  const nonCryptoGroupConditions = nonCryptoGroups.flatMap(g => g.conditions.filter(c => c.categorySlug !== 'crypto'));
-  const nonCryptoUngrouped = data.ungroupedConditions.filter(c => c.categorySlug !== 'crypto');
-  
-  console.log(`Would submit ${nonCryptoGroups.length} groups and ${nonCryptoGroupConditions.length + nonCryptoUngrouped.length} conditions\n`);
-  
+
+  // Count items to include (non-crypto OR always-include)
+  const includedGroups = data.groups.filter(shouldIncludeGroup);
+  const includedGroupConditions = includedGroups.flatMap(g => g.conditions.filter(shouldIncludeCondition));
+  const includedUngrouped = data.ungroupedConditions.filter(shouldIncludeCondition);
+
+  console.log(`Would submit ${includedGroups.length} groups and ${includedGroupConditions.length + includedUngrouped.length} conditions\n`);
+
   // Print groups
-  if (nonCryptoGroups.length > 0) {
+  if (includedGroups.length > 0) {
     console.log('Groups to create:');
-    for (const group of nonCryptoGroups) {
+    for (const group of includedGroups) {
       console.log(`  [${group.categorySlug}] "${group.title}" (${group.conditions.length} conditions)`);
       for (const condition of group.conditions) {
-        if (condition.categorySlug === 'crypto') continue;
+        if (!shouldIncludeCondition(condition)) continue;
         const endDate = new Date(condition.endDate).toLocaleString();
         console.log(`    - ${condition.question.slice(0, 60)}${condition.question.length > 60 ? '...' : ''}`);
         console.log(`      End: ${endDate} | Hash: ${condition.conditionHash.slice(0, 10)}...`);
@@ -864,27 +912,27 @@ function printDryRun(data: SapienceOutput): void {
     }
     console.log('');
   }
-  
+
   // Print ungrouped conditions
-  if (nonCryptoUngrouped.length > 0) {
+  if (includedUngrouped.length > 0) {
     console.log('Ungrouped conditions to create:');
-    for (const condition of nonCryptoUngrouped) {
+    for (const condition of includedUngrouped) {
       const endDate = new Date(condition.endDate).toLocaleString();
       console.log(`  [${condition.categorySlug}] ${condition.question.slice(0, 60)}${condition.question.length > 60 ? '...' : ''}`);
       console.log(`    End: ${endDate} | Hash: ${condition.conditionHash.slice(0, 10)}...`);
     }
     console.log('');
   }
-  
-  // Print skipped crypto
-  const cryptoGroups = data.groups.filter(g => g.categorySlug === 'crypto');
-  const cryptoConditions = data.groups.flatMap(g => g.conditions.filter(c => c.categorySlug === 'crypto')).length +
-                          data.ungroupedConditions.filter(c => c.categorySlug === 'crypto').length;
-  
-  if (cryptoGroups.length > 0 || cryptoConditions > 0) {
-    console.log(`Would skip: ${cryptoGroups.length} crypto groups, ${cryptoConditions} crypto conditions`);
+
+  // Print skipped crypto (excluding always-include)
+  const skippedCryptoGroups = data.groups.filter(g => g.categorySlug === 'crypto' && !shouldIncludeGroup(g));
+  const skippedCryptoConditions = data.groups.flatMap(g => g.conditions.filter(c => c.categorySlug === 'crypto' && !shouldAlwaysIncludeCondition(c))).length +
+                          data.ungroupedConditions.filter(c => c.categorySlug === 'crypto' && !shouldAlwaysIncludeCondition(c)).length;
+
+  if (skippedCryptoGroups.length > 0 || skippedCryptoConditions > 0) {
+    console.log(`Would skip: ${skippedCryptoGroups.length} crypto groups, ${skippedCryptoConditions} crypto conditions`);
   }
-  
+
   console.log('\n========== END DRY RUN ==========\n');
 }
 
@@ -907,15 +955,15 @@ async function submitToAPI(
   let conditionsFailed = 0;
   let cryptoConditionsSkipped = 0;
 
-  // Submit groups and their conditions (skip crypto category)
+  // Submit groups and their conditions (skip crypto category unless always-include)
   for (const group of data.groups) {
-    // Skip crypto groups entirely
-    if (group.categorySlug === 'crypto') {
+    // Skip crypto groups unless they have always-include conditions
+    if (!shouldIncludeGroup(group)) {
       cryptoGroupsSkipped++;
       cryptoConditionsSkipped += group.conditions.length;
       continue;
     }
-    
+
     const groupResult = await submitConditionGroup(apiUrl, privateKey, group);
     if (groupResult.success) {
       if (groupResult.error) {
@@ -929,14 +977,14 @@ async function submitToAPI(
     }
 
     for (const condition of group.conditions) {
-      // Skip crypto conditions
-      if (condition.categorySlug === 'crypto') {
+      // Skip crypto conditions unless always-include
+      if (!shouldIncludeCondition(condition)) {
         cryptoConditionsSkipped++;
         continue;
       }
-      
+
       const conditionResult = await submitCondition(apiUrl, privateKey, condition);
-      
+
       if (conditionResult.success) {
         if (conditionResult.error) {
           conditionsSkipped++;
@@ -950,10 +998,10 @@ async function submitToAPI(
     }
   }
 
-  // Submit ungrouped conditions (skip crypto category)
+  // Submit ungrouped conditions (skip crypto category unless always-include)
   for (const condition of data.ungroupedConditions) {
-    // Skip crypto conditions
-    if (condition.categorySlug === 'crypto') {
+    // Skip crypto conditions unless always-include
+    if (!shouldIncludeCondition(condition)) {
       cryptoConditionsSkipped++;
       continue;
     }
