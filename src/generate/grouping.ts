@@ -11,9 +11,10 @@ import type {
   SapienceOutput,
   SapienceCategorySlug,
 } from '../types';
-import { CHAIN_ID_ETHEREAL } from '../constants';
+import { CHAIN_ID_ETHEREAL, LLM_ENABLED, OPENROUTER_API_KEY, LLM_MODEL } from '../constants';
 import { inferSapienceCategorySlug } from './category';
 import { transformMatchQuestion, getPolymarketUrl } from './transform';
+import { enrichMarketsWithLLM, type MarketEnrichmentOutput } from '../llm';
 import {
   runPipeline,
   printPipelineStats,
@@ -46,24 +47,28 @@ export function computeGroupCategory(conditions: SapienceCondition[]): SapienceC
   return majorityCategory;
 }
 
-export function transformToSapienceCondition(market: PolymarketMarket, groupTitle?: string): SapienceCondition {
+export function transformToSapienceCondition(
+  market: PolymarketMarket,
+  groupTitle?: string,
+  enrichment?: MarketEnrichmentOutput
+): SapienceCondition {
   // Transform "X vs Y" questions to "X beats Y?" for clarity
   const question = transformMatchQuestion(market);
 
   return {
     conditionHash: market.conditionId,  // Use Polymarket's conditionId directly
     question,
-    shortName: question,  // Use transformed question as shortName
+    shortName: enrichment?.shortName || question,  // Use LLM shortName or fallback to question
     endDate: market.endDate,
     description: market.description || '',
     similarMarkets: [getPolymarketUrl(market)],
-    categorySlug: inferSapienceCategorySlug(market),
+    categorySlug: enrichment?.category || inferSapienceCategorySlug(market),  // Use LLM category or fallback
     chainId: CHAIN_ID_ETHEREAL,
     groupTitle,
   };
 }
 
-export function groupMarkets(markets: PolymarketMarket[]): SapienceOutput {
+export async function groupMarkets(markets: PolymarketMarket[]): Promise<SapienceOutput> {
   const allGroups: MarketGroup[] = [];
   const ungrouped: PolymarketMarket[] = [];
 
@@ -99,12 +104,26 @@ export function groupMarkets(markets: PolymarketMarket[]): SapienceOutput {
   );
   printPipelineStats(ungroupedStats, 'Ungrouped Pipeline');
 
+  // Collect all markets for LLM enrichment
+  const allFilteredMarkets = [
+    ...filteredGroups.map(g => g.markets[0]),
+    ...filteredUngrouped,
+  ];
+
+  // Enrich markets with LLM (category + shortName)
+  const enrichments = await enrichMarketsWithLLM(allFilteredMarkets, {
+    enabled: LLM_ENABLED,
+    apiKey: OPENROUTER_API_KEY,
+    model: LLM_MODEL,
+  });
+
   // Transform single-market groups to SapienceConditionGroup[]
   const conditionGroups: SapienceConditionGroup[] = [];
 
   for (const group of filteredGroups) {
     const market = group.markets[0]; // Each group has exactly 1 market now
-    const condition = transformToSapienceCondition(market, group.title);
+    const enrichment = enrichments.get(market.conditionId);
+    const condition = transformToSapienceCondition(market, group.title, enrichment);
 
     // Use event description if available, otherwise use market's description
     const event = market.events?.[0];
@@ -122,7 +141,9 @@ export function groupMarkets(markets: PolymarketMarket[]): SapienceOutput {
   }
 
   // Create ungrouped conditions from markets without events
-  const ungroupedConditions = filteredUngrouped.map(m => transformToSapienceCondition(m));
+  const ungroupedConditions = filteredUngrouped.map(m =>
+    transformToSapienceCondition(m, undefined, enrichments.get(m.conditionId))
+  );
 
   // Count total conditions after filtering
   const totalConditions = conditionGroups.reduce((sum, g) => sum + g.conditions.length, 0) + ungroupedConditions.length;
