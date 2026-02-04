@@ -46,6 +46,7 @@ export async function submitConditionGroup(
       body: JSON.stringify({
         name: group.title, // API uses 'name' field
         categorySlug: group.categorySlug,
+        similarMarkets: group.similarMarkets,
       }),
     });
 
@@ -176,13 +177,25 @@ export function printDryRun(data: SapienceOutput): void {
   printPipelineStats(groupStats, 'Groups');
   printPipelineStats(conditionStats, 'Conditions');
 
-  console.log(`Would submit ${includedGroups.length} groups and ${includedConditions.length} conditions\n`);
+  // Count unique group titles
+  const uniqueGroupTitles = new Set(includedGroups.map(g => g.title));
 
-  // Print groups
+  console.log(`Would submit ${includedConditions.length} conditions across ${uniqueGroupTitles.size} unique groups\n`);
+
+  // Print groups (deduplicated by title for display)
   if (includedGroups.length > 0) {
     console.log('Groups to create:');
+    const seenTitles = new Set<string>();
     for (const group of includedGroups) {
-      const { output: groupConditions } = runPipeline(group.conditions, API_CONDITION_FILTERS);
+      if (seenTitles.has(group.title)) continue;
+      seenTitles.add(group.title);
+
+      // Count conditions for this group title across all groups with same title
+      const conditionsForGroup = includedGroups
+        .filter(g => g.title === group.title)
+        .flatMap(g => g.conditions);
+      const { output: groupConditions } = runPipeline(conditionsForGroup, API_CONDITION_FILTERS);
+
       console.log(`  [${group.categorySlug}] "${group.title}" (${groupConditions.length} conditions)`);
       for (const condition of groupConditions) {
         const endDate = new Date(condition.endDate).toLocaleString();
@@ -248,20 +261,28 @@ export async function submitToAPI(
   const cryptoGroupsSkipped = data.groups.length - includedGroups.length;
   let cryptoConditionsSkipped = 0;
 
+  // Track submitted group titles to avoid duplicate API calls within this run
+  // (Multiple markets from same event each create a group with same title)
+  const submittedGroupTitles = new Set<string>();
+
   // Submit groups and their conditions
   for (const group of includedGroups) {
-    const groupResult = await submitConditionGroup(apiUrl, privateKey, group);
-    if (groupResult.success) {
-      if (groupResult.error) {
-        groupsSkipped++;
+    // Only submit group if we haven't already in this run
+    if (!submittedGroupTitles.has(group.title)) {
+      const groupResult = await submitConditionGroup(apiUrl, privateKey, group);
+      submittedGroupTitles.add(group.title);
+      if (groupResult.success) {
+        if (groupResult.error) {
+          groupsSkipped++;
+        } else {
+          groupsCreated++;
+          console.log(`[API] Created group: "${group.title}"`);
+        }
       } else {
-        groupsCreated++;
-        console.log(`[API] Created group: "${group.title}" (${group.conditions.length} conditions)`);
+        groupsFailed++;
       }
-    } else {
-      groupsFailed++;
+      await delay(SUBMISSION_DELAY_MS);
     }
-    await delay(SUBMISSION_DELAY_MS);
 
     // Filter conditions through pipeline
     const { output: includedConditions } = runPipeline(
@@ -270,6 +291,7 @@ export async function submitToAPI(
     );
     cryptoConditionsSkipped += group.conditions.length - includedConditions.length;
 
+    // Always submit conditions (they link to group via groupName field)
     for (const condition of includedConditions) {
       const conditionResult = await submitCondition(apiUrl, privateKey, condition);
 
@@ -310,7 +332,8 @@ export async function submitToAPI(
   }
 
   // Final summary
-  console.log(`Groups: ${groupsCreated} created, ${groupsSkipped} skipped, ${groupsFailed} failed`);
+  const uniqueGroupsSubmitted = submittedGroupTitles.size;
+  console.log(`Groups: ${uniqueGroupsSubmitted} unique (${groupsCreated} created, ${groupsSkipped} already existed, ${groupsFailed} failed)`);
   console.log(`Conditions: ${conditionsCreated} created, ${conditionsSkipped} skipped, ${conditionsFailed} failed`);
   if (cryptoGroupsSkipped > 0 || cryptoConditionsSkipped > 0) {
     console.log(`Crypto skipped: ${cryptoGroupsSkipped} groups, ${cryptoConditionsSkipped} conditions`);

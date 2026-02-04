@@ -27,6 +27,7 @@ export interface SapienceConditionGroup {
   title: string;
   categorySlug: SapienceCategorySlug;
   description: string;
+  similarMarkets: string[];
   conditions: SapienceCondition[];
 }
 

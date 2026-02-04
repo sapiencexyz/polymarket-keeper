@@ -81,7 +81,7 @@ export async function main() {
 
     const sapienceData = groupMarkets(markets);
 
-    console.log(`Fetched ${sapienceData.metadata.totalConditions} conditions (${sapienceData.metadata.totalGroups} groups)`);
+    console.log(`Fetched ${sapienceData.metadata.totalConditions} conditions`);
 
     // Export JSON file
     exportJSON(sapienceData);

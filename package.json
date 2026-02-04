@@ -5,13 +5,11 @@
   "type": "module",
   "scripts": {
     "generate": "tsx generate-sapience-conditions.ts",
-    "generate:ending-soon": "tsx generate-sapience-conditions.ts --ending-soon",
-    "generate:ending-soon:dry-run": "tsx generate-sapience-conditions.ts --ending-soon --dry-run",
+    "generate:dry-run": "tsx generate-sapience-conditions.ts --dry-run",
     "settle": "tsx settle-sapience-conditions.ts",
     "settle:execute": "tsx settle-sapience-conditions.ts --execute",
     "settle:execute:wait": "tsx settle-sapience-conditions.ts --execute --wait",
-    "settle:execute:wait:dry-run": "tsx settle-sapience-conditions.ts --execute --wait --dry-run",  
-    "start": "pnpm generate:ending-soon && pnpm settle:execute:wait"
+    "start": "pnpm generate && pnpm settle:execute:wait"
   },
   "dependencies": {
     "dotenv": "^16.4.0",
