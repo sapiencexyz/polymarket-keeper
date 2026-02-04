@@ -20,7 +20,6 @@ import { UnionFilter } from './combinators';
 import { BinaryMarketsFilter } from './filters/binary-markets';
 import { VolumeThresholdFilter, MarketVolumeThresholdFilter, type MarketGroup } from './filters/volume-threshold';
 import { AlwaysIncludeGroupFilter, AlwaysIncludeMarketFilter, AlwaysIncludeConditionFilter, AlwaysIncludeConditionGroupFilter } from './filters/always-include';
-import { SingleMarketGroupFilter } from './filters/single-condition-groups';
 import { NonCryptoConditionFilter, NonCryptoGroupFilter } from './filters/exclude-crypto';
 
 // Re-export types and utilities
@@ -71,12 +70,11 @@ export const UNGROUPED_MARKET_FILTERS: Filter<PolymarketMarket>[] = [
  * ========================================
  * PIPELINE 4: SINGLE-MARKET GROUP FILTERS
  * ========================================
- * Applied to market groups to separate single-market groups
+ * Previously used to demote single-market groups to ungrouped.
+ * Now empty - single-market groups are valid and link to event groups.
  * Input: MarketGroup[]
  */
-export const SINGLE_MARKET_FILTERS: Filter<MarketGroup>[] = [
-  new SingleMarketGroupFilter(),
-];
+export const SINGLE_MARKET_FILTERS: Filter<MarketGroup>[] = [];
 
 /**
  * ========================================

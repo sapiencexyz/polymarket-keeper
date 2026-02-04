@@ -19,7 +19,6 @@ import {
   printPipelineStats,
   GROUP_FILTERS,
   UNGROUPED_MARKET_FILTERS,
-  SINGLE_MARKET_FILTERS,
   type MarketGroup,
 } from './pipeline';
 
@@ -68,27 +67,20 @@ export function groupMarkets(markets: PolymarketMarket[]): SapienceOutput {
   const allGroups: MarketGroup[] = [];
   const ungrouped: PolymarketMarket[] = [];
 
-  // Separate grouped and ungrouped markets based on event data
-  const groupsMap = new Map<string, MarketGroup>();
-
+  // Each market with an event becomes its own group entry (not bundled with other markets from same event)
   for (const market of markets) {
     const event = market.events?.[0];
 
     if (event?.title) {
-      const groupTitle = event.title;
-
-      if (!groupsMap.has(groupTitle)) {
-        groupsMap.set(groupTitle, { title: groupTitle, markets: [], eventSlug: event.slug });
-      }
-      groupsMap.get(groupTitle)!.markets.push(market);
+      // Each market is its own "group" with 1 market
+      allGroups.push({
+        title: event.title,
+        markets: [market],
+        eventSlug: event.slug,
+      });
     } else {
       ungrouped.push(market);
     }
-  }
-
-  // Convert map to array for pipeline processing
-  for (const group of groupsMap.values()) {
-    allGroups.push(group);
   }
 
   // Apply group filters pipeline (volume OR always-include)
@@ -99,14 +91,6 @@ export function groupMarkets(markets: PolymarketMarket[]): SapienceOutput {
   );
   printPipelineStats(groupStats, 'Group Pipeline');
 
-  // Filter single-market groups (before transformation)
-  const { output: multiMarketGroups, removed: singleMarketGroups, stats: singleMarketStats } = runPipeline(
-    filteredGroups,
-    SINGLE_MARKET_FILTERS,
-    { verbose: false }
-  );
-  printPipelineStats(singleMarketStats, 'Single-Market Pipeline');
-
   // Apply ungrouped market filters pipeline
   const { output: filteredUngrouped, stats: ungroupedStats } = runPipeline(
     ungrouped,
@@ -115,37 +99,29 @@ export function groupMarkets(markets: PolymarketMarket[]): SapienceOutput {
   );
   printPipelineStats(ungroupedStats, 'Ungrouped Pipeline');
 
-  // Transform multi-market groups to SapienceConditionGroup[]
+  // Transform single-market groups to SapienceConditionGroup[]
   const conditionGroups: SapienceConditionGroup[] = [];
 
-  for (const group of multiMarketGroups) {
-    const conditions = group.markets.map(m => transformToSapienceCondition(m, group.title));
+  for (const group of filteredGroups) {
+    const market = group.markets[0]; // Each group has exactly 1 market now
+    const condition = transformToSapienceCondition(market, group.title);
 
-    // Use event description if available, otherwise use first market's description
-    const event = group.markets[0]?.events?.[0];
+    // Use event description if available, otherwise use market's description
+    const event = market.events?.[0];
     const groupDescription = event?.description?.split('\n')[0] ||
-                            group.markets[0]?.description?.split('\n')[0] ||
+                            market.description?.split('\n')[0] ||
                             group.title;
-
-    // Compute group categorySlug by majority vote from conditions
-    const categorySlug = computeGroupCategory(conditions);
 
     conditionGroups.push({
       title: group.title,
       description: groupDescription,
-      categorySlug,
-      conditions,
+      categorySlug: condition.categorySlug,
+      conditions: [condition],
     });
   }
 
-  // Sort groups by number of conditions (most popular)
-  conditionGroups.sort((a, b) => b.conditions.length - a.conditions.length);
-
-  // Create ungrouped conditions from single-market groups + ungrouped markets
-  const ungroupedConditions = [
-    ...filteredUngrouped.map(m => transformToSapienceCondition(m)),
-    ...singleMarketGroups.flatMap(g => g.markets.map(m => transformToSapienceCondition(m))),
-  ];
+  // Create ungrouped conditions from markets without events
+  const ungroupedConditions = filteredUngrouped.map(m => transformToSapienceCondition(m));
 
   // Count total conditions after filtering
   const totalConditions = conditionGroups.reduce((sum, g) => sum + g.conditions.length, 0) + ungroupedConditions.length;
