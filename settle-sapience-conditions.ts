@@ -2,23 +2,22 @@
 /// <reference types="node" />
 /**
  * Settle Sapience conditions by bridging resolution data from Polymarket via LayerZero
- * 
+ *
  * This script:
  * 1. Queries Sapience API for unsettled conditions that have ended
  * 2. Checks if each condition is resolved on Polymarket (via ConditionalTokensReader on Polygon)
  * 3. Triggers LayerZero resolution bridging by calling requestResolution
- * 
- * Usage: 
+ *
+ * Usage:
  *   tsx settle-sapience-conditions.ts --dry-run
  *   tsx settle-sapience-conditions.ts --execute
- * 
+ *
  * Options:
  *   --dry-run      Check conditions without sending transactions (default)
  *   --execute      Actually send settlement transactions
  *   --wait         Wait for transaction confirmations
- *   --limit N      Limit number of conditions to process
  *   --help         Show this help message
- * 
+ *
  * Environment Variables (can be set in .env file):
  *   POLYGON_RPC_URL    Polygon RPC URL (required)
  *   ADMIN_PRIVATE_KEY        Private key for signing transactions (required for --execute)
@@ -42,6 +41,7 @@ import {
 } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
 import { polygon } from 'viem/chains';
+import { fetchWithRetry } from './src/utils/fetch.js';
 
 // ============ Constants ============
 
@@ -60,23 +60,11 @@ interface CLIOptions {
   dryRun: boolean;
   execute: boolean;
   wait: boolean;
-  limit: number;
   help: boolean;
 }
 
 interface SapienceCondition {
   id: string;
-  question: string;
-  shortName: string;
-  endTime: number;
-  settled: boolean;
-  resolver: string | null;
-  claimStatement: string | null;
-  chainId: number;
-  openInterest: string | null;  // Open interest in wei (string for BigInt compatibility)
-  _count: {
-    attestations: number;
-  } | null;
 }
 
 interface GraphQLResponse<T> {
@@ -127,28 +115,14 @@ const conditionalTokensReaderAbi = [
 
 function parseArgs(): CLIOptions {
   const args = process.argv.slice(2);
-  
-  const getArgValue = (name: string): string | undefined => {
-    const idx = args.findIndex(a => a === `--${name}`);
-    if (idx !== -1 && args[idx + 1] && !args[idx + 1].startsWith('--')) {
-      return args[idx + 1];
-    }
-    const withEq = args.find(a => a.startsWith(`--${name}=`));
-    if (withEq) return withEq.slice(`--${name}=`.length);
-    return undefined;
-  };
-  
-  const hasArg = (name: string): boolean => 
+
+  const hasArg = (name: string): boolean =>
     args.includes(`--${name}`) || args.some(a => a.startsWith(`--${name}=`));
-  
-  const limitStr = getArgValue('limit');
-  const limit = limitStr ? parseInt(limitStr, 10) : Infinity;
-  
+
   return {
     dryRun: hasArg('dry-run') || !hasArg('execute'),
     execute: hasArg('execute'),
     wait: hasArg('wait'),
-    limit: Number.isFinite(limit) ? limit : Infinity,
     help: hasArg('help') || hasArg('h'),
   };
 }
@@ -161,7 +135,6 @@ Options:
   --dry-run      Check conditions without sending transactions (default)
   --execute      Actually send settlement transactions
   --wait         Wait for transaction confirmations
-  --limit N      Limit number of conditions to process (default: all)
   --help, -h     Show this help message
 
 Environment Variables:
@@ -176,51 +149,48 @@ Examples:
   # Execute settlements
   POLYGON_RPC_URL=https://polygon-rpc.com ADMIN_PRIVATE_KEY=0x... \\
     tsx settle-sapience-conditions.ts --execute --wait
-
-  # Process only 10 conditions
-  tsx settle-sapience-conditions.ts --dry-run --limit 10
 `);
 }
 
 // ============ GraphQL Query ============
 
+// Page size for fetching conditions (to avoid query complexity limits)
+const CONDITIONS_PAGE_SIZE = 30;
+
 const UNRESOLVED_CONDITIONS_QUERY = `
-query UnresolvedConditions($now: Int!) {
+query UnresolvedConditions($now: Int!, $take: Int!, $skip: Int!) {
   conditions(
     where: {
       AND: [
         { endTime: { lt: $now } }
         { settled: { equals: false } }
         { public: { equals: true } }
+        {
+          OR: [
+            { openInterest: { gt: "0" } }
+            { attestations: { some: {} } }
+          ]
+        }
       ]
     }
     orderBy: { endTime: asc }
+    take: $take
+    skip: $skip
   ) {
     id
-    question
-    shortName
-    endTime
-    settled
-    resolver
-    claimStatement
-    chainId
-    openInterest
-    _count {
-      attestations
-    }
   }
 }
 `;
 
 // ============ API Functions ============
 
-async function fetchUnresolvedConditions(
+async function fetchConditionsPage(
   apiUrl: string,
-  limit: number
+  nowTimestamp: number,
+  take: number,
+  skip: number
 ): Promise<SapienceCondition[]> {
-  const nowTimestamp = Math.floor(Date.now() / 1000);
-  
-  const response = await fetch(apiUrl, {
+  const response = await fetchWithRetry(apiUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -228,25 +198,71 @@ async function fetchUnresolvedConditions(
     },
     body: JSON.stringify({
       query: UNRESOLVED_CONDITIONS_QUERY,
-      variables: { now: nowTimestamp },
+      variables: { now: nowTimestamp, take, skip },
     }),
   });
-  
+
   if (!response.ok) {
-    throw new Error(`GraphQL request failed: ${response.status} ${response.statusText}`);
+    let errorBody = '';
+    try {
+      errorBody = await response.text();
+    } catch {
+      errorBody = '(could not read response body)';
+    }
+    throw new Error(
+      `GraphQL request failed: ${response.status} ${response.statusText}\n` +
+      `URL: ${apiUrl}\n` +
+      `Response: ${errorBody.slice(0, 500)}`
+    );
   }
-  
-  const result = await response.json() as GraphQLResponse<ConditionsQueryResponse>;
-  
+
+  let result: GraphQLResponse<ConditionsQueryResponse>;
+  try {
+    result = await response.json() as GraphQLResponse<ConditionsQueryResponse>;
+  } catch {
+    const text = await response.clone().text().catch(() => '(could not read body)');
+    throw new Error(
+      `Failed to parse GraphQL response as JSON\n` +
+      `URL: ${apiUrl}\n` +
+      `Response: ${text.slice(0, 500)}`
+    );
+  }
+
   if (result.errors?.length) {
     throw new Error(`GraphQL errors: ${result.errors.map(e => e.message).join('; ')}`);
   }
-  
-  if (!result.data?.conditions) {
-    throw new Error('No conditions data in response');
+
+  return result.data?.conditions ?? [];
+}
+
+async function fetchUnresolvedConditions(apiUrl: string): Promise<SapienceCondition[]> {
+  const nowTimestamp = Math.floor(Date.now() / 1000);
+  const allConditions: SapienceCondition[] = [];
+  let skip = 0;
+
+  console.log(`Fetching unresolved conditions from ${apiUrl}...`);
+
+  while (true) {
+    // Fetch one extra to check if there's a next page
+    const page = await fetchConditionsPage(apiUrl, nowTimestamp, CONDITIONS_PAGE_SIZE + 1, skip);
+
+    const hasMore = page.length > CONDITIONS_PAGE_SIZE;
+    const pageConditions = hasMore ? page.slice(0, CONDITIONS_PAGE_SIZE) : page;
+
+    allConditions.push(...pageConditions);
+
+    if (pageConditions.length > 0) {
+      console.log(`  Fetched ${allConditions.length} conditions so far...`);
+    }
+
+    if (!hasMore) break;
+
+    skip += CONDITIONS_PAGE_SIZE;
   }
-  
-  return result.data.conditions.slice(0, limit);
+
+  console.log(`Found ${allConditions.length} unresolved conditions`);
+
+  return allConditions;
 }
 
 // ============ Blockchain Functions ============
@@ -394,35 +410,10 @@ async function main() {
   }
   
   try {
-    const allConditions = await fetchUnresolvedConditions(sapienceApiUrl, options.limit);
-    
-    if (allConditions.length === 0) {
-      console.log('No unsettled conditions found');
-      return;
-    }
-    
-    // Filter to only conditions with non-zero open interest OR at least one forecast
-    let includedDueToForecasts = 0;
-    const conditions = allConditions.filter(c => {
-      const oi = c.openInterest ? BigInt(c.openInterest) : BigInt(0);
-      const hasOpenInterest = oi > BigInt(0);
-      const hasForecast = (c._count?.attestations ?? 0) > 0;
-      if (!hasOpenInterest && hasForecast) {
-        includedDueToForecasts++;
-      }
-      return hasOpenInterest || hasForecast;
-    });
-
-    const skipped = allConditions.length - conditions.length;
-    if (skipped > 0) {
-      console.log(`Skipping ${skipped} conditions with zero open interest and no forecasts`);
-    }
-    if (includedDueToForecasts > 0) {
-      console.log(`Including ${includedDueToForecasts} conditions with zero OI but forecasts > 0`);
-    }
+    const conditions = await fetchUnresolvedConditions(sapienceApiUrl);
 
     if (conditions.length === 0) {
-      console.log('No conditions with open interest or forecasts to settle');
+      console.log('No unsettled conditions found');
       return;
     }
 

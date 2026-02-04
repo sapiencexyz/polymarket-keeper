@@ -7,6 +7,7 @@
     "generate": "tsx generate-sapience-conditions.ts",
     "generate:dry-run": "tsx generate-sapience-conditions.ts --dry-run",
     "settle": "tsx settle-sapience-conditions.ts",
+    "settle:dry-run": "tsx settle-sapience-conditions.ts --dry-run",
     "settle:execute": "tsx settle-sapience-conditions.ts --execute",
     "settle:execute:wait": "tsx settle-sapience-conditions.ts --execute --wait",
     "start": "pnpm generate && pnpm settle:execute:wait"
