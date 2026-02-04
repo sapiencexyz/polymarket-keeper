@@ -46,6 +46,7 @@ export async function submitConditionGroup(
       body: JSON.stringify({
         name: group.title, // API uses 'name' field
         categorySlug: group.categorySlug,
+        similarMarkets: group.similarMarkets,
       }),
     });
 

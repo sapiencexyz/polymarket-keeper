@@ -116,6 +116,7 @@ export function groupMarkets(markets: PolymarketMarket[]): SapienceOutput {
       title: group.title,
       description: groupDescription,
       categorySlug: condition.categorySlug,
+      similarMarkets: [`https://polymarket.com#${group.eventSlug}`],
       conditions: [condition],
     });
   }
