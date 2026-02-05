@@ -21,10 +21,12 @@ import { BinaryMarketsFilter } from './filters/binary-markets';
 import { VolumeThresholdFilter, MarketVolumeThresholdFilter, type MarketGroup } from './filters/volume-threshold';
 import { AlwaysIncludeGroupFilter, AlwaysIncludeMarketFilter, AlwaysIncludeConditionFilter, AlwaysIncludeConditionGroupFilter } from './filters/always-include';
 import { NonCryptoConditionFilter, NonCryptoGroupFilter } from './filters/exclude-crypto';
+import { ExcludeExistingMarketsFilter, checkExistingConditions } from './filters/exclude-existing';
 
 // Re-export types and utilities
 export type { Filter, FilterResult, FilterStats, PipelineResult } from './types';
 export type { MarketGroup } from './filters/volume-threshold';
+export { checkExistingConditions } from './filters/exclude-existing';
 export { matchesAlwaysIncludePatterns } from './filters/always-include';
 
 /**
@@ -103,6 +105,18 @@ export const API_CONDITION_FILTERS: Filter<SapienceCondition>[] = [
     new AlwaysIncludeConditionFilter(),
   ]),
 ];
+
+/**
+ * ========================================
+ * PIPELINE 7: LLM PRE-FILTER (MARKETS)
+ * ========================================
+ * Applied before LLM enrichment to skip existing markets
+ * Input: PolymarketMarket[]
+ * Note: Filter must be constructed with existing IDs (fetched async)
+ */
+export function createLlmPreFilter(existingIds: Set<string>): Filter<PolymarketMarket>[] {
+  return [new ExcludeExistingMarketsFilter(existingIds)];
+}
 
 /**
  * Run items through a filter pipeline

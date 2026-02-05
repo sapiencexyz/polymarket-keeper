@@ -48,11 +48,11 @@ export function inferSapienceCategorySlug(market: PolymarketMarket): SapienceCat
     return 'geopolitics';
   }
 
-  // 7. Culture: Check for entertainment/celebrity keywords
-  if (/\b(oscar|emmy|grammy|award|movie|film|music|album|celebrity|actor|actress|director|streaming|netflix|spotify|pop-culture|entertainment|fashion|art|artist)\b/.test(searchText)) {
+  // 7. Culture: Check for entertainment/celebrity/social media keywords
+  if (/\b(oscar|emmy|grammy|award|movie|film|music|album|celebrity|actor|actress|director|streaming|netflix|spotify|pop-culture|entertainment|fashion|art|artist|tweet|tweets|elon-musk|elon|twitter|x-post|post-on-x)\b/.test(searchText)) {
     return 'culture';
   }
 
-  // Default fallback: geopolitics (most common category for prediction markets)
-  return 'geopolitics';
+  // Default fallback: unknown (will trigger LLM categorization)
+  return 'unknown';
 }

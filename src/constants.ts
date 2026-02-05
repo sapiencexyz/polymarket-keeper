@@ -25,3 +25,10 @@ export const ALWAYS_INCLUDE_PATTERNS = [
   /price of Bitcoin.+on \w+ \d+/i,               // "Will the price of Bitcoin be... on January 28?"
   /price of Ethereum.+on \w+ \d+/i,              // "Will the price of Ethereum be above... on January 28?"
 ];
+
+// LLM Configuration
+export const LLM_ENABLED = process.env.LLM_ENABLED === 'true';
+export const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || '';
+// set LLM_MODEL env var to use paid models like 'openai/gpt-4o-mini'
+// FFR: try mistralai/ministral-3b or other cheaper alternatives to gpt-4o-mini
+export const LLM_MODEL = process.env.LLM_MODEL || 'openai/gpt-4o-mini';

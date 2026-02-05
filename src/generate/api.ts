@@ -10,13 +10,13 @@ import {
   printPipelineStats,
   API_GROUP_FILTERS,
   API_CONDITION_FILTERS,
-  matchesAlwaysIncludePatterns,
+  // matchesAlwaysIncludePatterns,
 } from './pipeline';
 
 /**
- * Delay between API submissions to avoid rate limiting (600 req/min = 100ms min)
+ * Delay between API submissions to avoid rate limiting
  */
-const SUBMISSION_DELAY_MS = 100;
+const SUBMISSION_DELAY_MS = 300;
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
@@ -127,27 +127,27 @@ export async function submitCondition(
   }
 }
 
-/**
- * Check if a condition should be included (not crypto OR always-include)
- * @deprecated Use API_CONDITION_FILTERS pipeline instead
- */
-export function shouldIncludeCondition(condition: SapienceCondition): boolean {
-  const isCrypto = condition.categorySlug === 'crypto';
-  const isAlwaysInclude = matchesAlwaysIncludePatterns(condition.question || '');
-  return !isCrypto || isAlwaysInclude;
-}
+// /**
+//  * Check if a condition should be included (not crypto OR always-include)
+//  * @deprecated Use API_CONDITION_FILTERS pipeline instead
+//  */
+// export function shouldIncludeCondition(condition: SapienceCondition): boolean {
+//   const isCrypto = condition.categorySlug === 'crypto';
+//   const isAlwaysInclude = matchesAlwaysIncludePatterns(condition.question || '');
+//   return !isCrypto || isAlwaysInclude;
+// }
 
-/**
- * Check if a group should be included (not crypto OR has always-include conditions)
- * @deprecated Use API_GROUP_FILTERS pipeline instead
- */
-export function shouldIncludeGroup(group: SapienceConditionGroup): boolean {
-  const isCrypto = group.categorySlug === 'crypto';
-  const hasAlwaysInclude = group.conditions.some(
-    c => matchesAlwaysIncludePatterns(c.question || '')
-  );
-  return !isCrypto || hasAlwaysInclude;
-}
+// /**
+//  * Check if a group should be included (not crypto OR has always-include conditions)
+//  * @deprecated Use API_GROUP_FILTERS pipeline instead
+//  */
+// export function shouldIncludeGroup(group: SapienceConditionGroup): boolean {
+//   const isCrypto = group.categorySlug === 'crypto';
+//   const hasAlwaysInclude = group.conditions.some(
+//     c => matchesAlwaysIncludePatterns(c.question || '')
+//   );
+//   return !isCrypto || hasAlwaysInclude;
+// }
 
 /**
  * Print what would be submitted in dry-run mode
