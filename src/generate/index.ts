@@ -79,7 +79,7 @@ export async function main() {
     // Fetch Polymarket markets ending within 7 days
     const markets = await fetchEndingSoonestMarkets();
 
-    const sapienceData = await groupMarkets(markets);
+    const sapienceData = await groupMarkets(markets, apiUrl);
 
     console.log(`Fetched ${sapienceData.metadata.totalConditions} conditions`);
 

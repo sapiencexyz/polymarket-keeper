@@ -9,7 +9,8 @@ export type SapienceCategorySlug =
   | 'geopolitics'
   | 'economy-finance'
   | 'sports'
-  | 'culture';
+  | 'culture'
+  | 'unknown';
 
 export interface SapienceCondition {
   conditionHash: string;  // Polymarket's conditionId - used to resolve via LZ

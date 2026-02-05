@@ -19,15 +19,18 @@ export interface MarketEnrichmentOutput {
   shortName: string;
 }
 
+export interface CategoryOutput {
+  conditionId: string;
+  category: SapienceCategorySlug;
+}
+
+export interface ShortNameOnlyOutput {
+  conditionId: string;
+  shortName: string;
+}
+
 export interface EnrichmentResult {
   results: Map<string, MarketEnrichmentOutput>;
   errors: string[];
   usedFallback: boolean;
-}
-
-/** Raw LLM response item */
-export interface LLMResponseItem {
-  id: string;
-  cat: string;
-  name: string;
 }
