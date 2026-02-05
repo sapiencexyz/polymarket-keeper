@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "generate": "tsx generate-sapience-conditions.ts",
-    "generate:dry-run": "tsx generate-sapience-conditions.ts --dry-run",
+    "generate:dry-run": "LLM_ENABLED=false tsx generate-sapience-conditions.ts --dry-run",
     "settle": "tsx settle-sapience-conditions.ts",
     "settle:dry-run": "tsx settle-sapience-conditions.ts --dry-run",
     "settle:execute": "tsx settle-sapience-conditions.ts --execute",

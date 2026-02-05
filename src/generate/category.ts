@@ -9,6 +9,7 @@ export function inferSapienceCategorySlug(market: PolymarketMarket): SapienceCat
   const searchText = [
     market.question,
     market.slug,
+    market.events?.[0]?.title,
     market.events?.[0]?.series?.[0]?.slug,
     market.events?.[0]?.series?.[0]?.title,
     market.events?.[0]?.seriesSlug,
@@ -24,7 +25,7 @@ export function inferSapienceCategorySlug(market: PolymarketMarket): SapienceCat
   }
 
   // 2. Crypto: Check for crypto keywords
-  if (/\b(bitcoin|btc|ethereum|eth|solana|sol|xrp|crypto|cryptocurrency|blockchain|defi|nft|token|coin|satoshi)\b/.test(searchText)) {
+  if (/\b(bitcoin|btc|ethereum|eth|solana|sol|xrp|crypto|cryptocurrency|blockchain|defi|nft|satoshi)\b/.test(searchText)) {
     return 'crypto';
   }
 
@@ -34,7 +35,7 @@ export function inferSapienceCategorySlug(market: PolymarketMarket): SapienceCat
   }
 
   // 4. Tech & Science: Check for tech/science keywords
-  if (/\b(ai|artificial-intelligence|chatgpt|openai|tech|technology|science|nasa|space|spacex|tesla|apple|google|microsoft|amazon|meta|robot|quantum|semiconductor|chip)\b/.test(searchText)) {
+  if (/\b(ai|artificial-intelligence|chatgpt|openai|tech|technology|science|nasa|spacex|tesla|apple|google|microsoft|amazon|meta|robot|quantum|semiconductor|chip)\b/.test(searchText)) {
     return 'tech-science';
   }
 

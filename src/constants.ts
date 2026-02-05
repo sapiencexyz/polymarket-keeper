@@ -16,6 +16,9 @@ export const CHAIN_ID_ETHEREAL = 5064014 as const;
 // Minimum volume threshold (in USD) for including markets
 export const MIN_VOLUME_THRESHOLD = 50_000;
 
+// Minimum liquidity threshold (in USD) for including markets
+export const MIN_LIQUIDITY_THRESHOLD = 1_000;
+
 // Markets matching these patterns are always included regardless of volume
 export const ALWAYS_INCLUDE_PATTERNS = [
   /\bfed\b/i,                                    // Federal Reserve

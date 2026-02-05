@@ -282,6 +282,14 @@ export async function callOpenRouterForBoth(
 }
 
 /**
+ * Ensure shortName ends with a question mark
+ */
+function ensureQuestionMark(shortName: string): string {
+  const trimmed = shortName.trim();
+  return trimmed.endsWith('?') ? trimmed : `${trimmed}?`;
+}
+
+/**
  * Calculate Levenshtein distance between two strings
  */
 function levenshteinDistance(a: string, b: string): number {
@@ -456,7 +464,7 @@ function parseShortNameOnlyResponse(content: string, markets: MarketEnrichmentIn
     }
 
     const market = marketMap.get(id)!;
-    const shortName = name || market.question;
+    const shortName = ensureQuestionMark(name || market.question);
 
     console.log(`[LLM]   "${market.question.slice(0, 50)}..." -> name: "${shortName}"`);
 
@@ -475,7 +483,7 @@ function parseShortNameOnlyResponse(content: string, markets: MarketEnrichmentIn
     const matchedId = findClosestConditionId(id, missingMarketIds);
     if (matchedId && !foundIds.has(matchedId)) {
       const market = marketMap.get(matchedId)!;
-      const shortName = name || market.question;
+      const shortName = ensureQuestionMark(name || market.question);
 
       console.log(`[LLM]   "${market.question.slice(0, 50)}..." -> name: "${shortName}" (fuzzy)`);
 
@@ -542,7 +550,7 @@ function parseBothResponse(content: string, markets: MarketEnrichmentInput[]): M
       ? (cat as SapienceCategorySlug)
       : 'geopolitics';
 
-    const shortName = name || market.question;
+    const shortName = ensureQuestionMark(name || market.question);
 
     console.log(`[LLM]   "${market.question.slice(0, 50)}..." -> cat: ${category}, name: "${shortName}"`);
 
@@ -566,7 +574,7 @@ function parseBothResponse(content: string, markets: MarketEnrichmentInput[]): M
         ? (cat as SapienceCategorySlug)
         : 'geopolitics';
 
-      const shortName = name || market.question;
+      const shortName = ensureQuestionMark(name || market.question);
 
       console.log(`[LLM]   "${market.question.slice(0, 50)}..." -> cat: ${category}, name: "${shortName}" (fuzzy)`);
 

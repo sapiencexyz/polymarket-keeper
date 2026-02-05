@@ -14,11 +14,12 @@ import type { PolymarketMarket, SapienceCondition, SapienceConditionGroup } from
 import type { Filter, FilterStats, PipelineResult } from './types';
 
 // Import combinators
-import { UnionFilter } from './combinators';
+import { UnionFilter, IntersectionFilter } from './combinators';
 
 // Import all filters
 import { BinaryMarketsFilter } from './filters/binary-markets';
 import { VolumeThresholdFilter, MarketVolumeThresholdFilter, type MarketGroup } from './filters/volume-threshold';
+import { LiquidityThresholdFilter, MarketLiquidityThresholdFilter } from './filters/liquidity-threshold';
 import { AlwaysIncludeGroupFilter, AlwaysIncludeMarketFilter, AlwaysIncludeConditionFilter, AlwaysIncludeConditionGroupFilter } from './filters/always-include';
 import { NonCryptoConditionFilter, NonCryptoGroupFilter } from './filters/exclude-crypto';
 import { ExcludeExistingMarketsFilter, checkExistingConditions } from './filters/exclude-existing';
@@ -49,7 +50,10 @@ export const MARKET_FILTERS: Filter<PolymarketMarket>[] = [
  */
 export const GROUP_FILTERS: Filter<MarketGroup>[] = [
   new UnionFilter([
-    new VolumeThresholdFilter(),
+    new IntersectionFilter([
+      new VolumeThresholdFilter(),
+      new LiquidityThresholdFilter(),
+    ]),
     new AlwaysIncludeGroupFilter(),
   ]),
 ];
@@ -63,7 +67,10 @@ export const GROUP_FILTERS: Filter<MarketGroup>[] = [
  */
 export const UNGROUPED_MARKET_FILTERS: Filter<PolymarketMarket>[] = [
   new UnionFilter([
-    new MarketVolumeThresholdFilter(),
+    new IntersectionFilter([
+      new MarketVolumeThresholdFilter(),
+      new MarketLiquidityThresholdFilter(),
+    ]),
     new AlwaysIncludeMarketFilter(),
   ]),
 ];
