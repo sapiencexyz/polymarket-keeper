@@ -8,9 +8,9 @@
  */
 
 import 'dotenv/config';
-import { getAdminAuthHeaders, validatePrivateKey, confirmProductionAccess } from './src/utils';
-import { fetchWithRetry } from './src/utils/fetch';
-import { DEFAULT_SAPIENCE_API_URL } from './src/constants';
+import { getAdminAuthHeaders, validatePrivateKey, confirmProductionAccess } from '../src/utils';
+import { fetchWithRetry } from '../src/utils/fetch';
+import { DEFAULT_SAPIENCE_API_URL } from '../src/constants';
 
 const SAPIENCE_API_URL = process.env.SAPIENCE_API_URL || DEFAULT_SAPIENCE_API_URL;
 

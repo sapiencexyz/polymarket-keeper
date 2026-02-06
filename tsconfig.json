@@ -7,6 +7,6 @@
     "strict": true,
     "skipLibCheck": true
   },
-  "include": ["*.ts", "src/**/*.ts"],
+  "include": ["*.ts", "src/**/*.ts", "misc/fix-category.ts", "misc/backfill-similar-markets.ts"],
   "exclude": ["node_modules"]
 }
