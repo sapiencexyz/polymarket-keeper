@@ -4,7 +4,7 @@
 
 import 'dotenv/config';
 import { DEFAULT_SAPIENCE_API_URL } from '../constants';
-import { validatePrivateKey } from '../utils';
+import { validatePrivateKey, confirmProductionAccess } from '../utils';
 import { fetchEndingSoonestMarkets } from './market';
 import { groupMarkets, exportJSON } from './grouping';
 import { printDryRun, submitToAPI } from './api';
@@ -74,6 +74,11 @@ export async function main() {
   }
 
   const hasAPICredentials = apiUrl && privateKey;
+
+  // Confirm production access early (before any work is done)
+  if (hasAPICredentials && !options.dryRun) {
+    await confirmProductionAccess(apiUrl);
+  }
 
   try {
     // Fetch Polymarket markets ending within 7 days

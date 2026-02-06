@@ -26,6 +26,7 @@
 
 import 'dotenv/config';
 
+import { confirmProductionAccess } from './src/utils';
 import {
   createPublicClient,
   createWalletClient,
@@ -386,7 +387,10 @@ async function main() {
     console.error('ADMIN_PRIVATE_KEY environment variable is required for --execute mode');
     process.exit(1);
   }
-  
+
+  // Confirm production access if pointing to production without NODE_ENV=production
+  await confirmProductionAccess(process.env.SAPIENCE_API_URL);
+
   const publicClient = createPublicClient({
     chain: polygon,
     transport: http(polygonRpcUrl),
